@@ -16,6 +16,71 @@ type QdrantAddDocumentOptions = {
     ids?: string[]
 }
 
+/**
+ * Parse the MRL dimensions string into an array of integers.
+ * E.g. "512, 256, 128" -> [512, 256, 128]
+ */
+function parseMrlDimensions(raw: string): number[] {
+    return raw
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n) && n > 0)
+}
+
+/**
+ * Build Qdrant named-vectors config for MRL.
+ * Returns e.g. { "full": { size: 1024, distance: "Cosine" }, "512": { size: 512, distance: "Cosine" } }
+ * Truncated vectors use their dimension as the vector name (e.g. "512", "256").
+ */
+function buildMrlVectorsConfig(fullDimension: number, truncatedDimensions: number[], distance: string): Record<string, any> {
+    const vectors: Record<string, any> = {
+        full: { size: fullDimension, distance }
+    }
+    for (const dim of truncatedDimensions) {
+        if (dim >= fullDimension) continue
+        vectors[`${dim}`] = { size: dim, distance }
+    }
+    return vectors
+}
+
+/**
+ * Truncate an embedding vector to the specified length and L2-normalize it.
+ * MRL embeddings retain semantic meaning when truncated, but re-normalization
+ * is recommended for cosine similarity to remain well-behaved.
+ */
+function truncateAndNormalize(embedding: number[], targetDim: number): number[] {
+    const truncated = embedding.slice(0, targetDim)
+    const norm = Math.sqrt(truncated.reduce((sum, v) => sum + v * v, 0))
+    if (norm === 0) return truncated
+    return truncated.map((v) => v / norm)
+}
+
+/**
+ * Build the named-vector map for a single point during MRL upsert.
+ */
+function buildMrlVectorMap(embedding: number[], truncatedDimensions: number[], fullDimension: number): Record<string, number[]> {
+    const vectorMap: Record<string, number[]> = {
+        full: embedding
+    }
+    for (const dim of truncatedDimensions) {
+        if (dim >= fullDimension) continue
+        vectorMap[`${dim}`] = truncateAndNormalize(embedding, dim)
+    }
+    return vectorMap
+}
+
+/**
+ * Ensure the MRL collection exists with named vectors.
+ * If the collection already exists, this is a no-op.
+ */
+async function ensureMrlCollection(client: QdrantClient, collectionName: string, collectionConfig: Record<string, any>): Promise<void> {
+    const response = await client.getCollections()
+    const collectionNames = response.collections.map((c: any) => c.name)
+    if (!collectionNames.includes(collectionName)) {
+        await client.createCollection(collectionName, collectionConfig)
+    }
+}
+
 class Qdrant_VectorStores implements INode {
     label: string
     name: string
@@ -33,7 +98,7 @@ class Qdrant_VectorStores implements INode {
     constructor() {
         this.label = 'Qdrant'
         this.name = 'qdrant'
-        this.version = 5.0
+        this.version = 6.0
         this.type = 'Qdrant'
         this.icon = 'qdrant.png'
         this.category = 'Vector Stores'
@@ -149,6 +214,37 @@ class Qdrant_VectorStores implements INode {
                 additionalParams: true
             },
             {
+                label: 'Enable MRL (Matryoshka Representation Learning)',
+                name: 'mrlEnabled',
+                description:
+                    'Store embeddings at multiple truncated dimensions using Qdrant named vectors. Requires an MRL-trained embedding model (e.g. OpenAI text-embedding-3-*, Nomic Embed, jina-embeddings-v2).',
+                type: 'boolean',
+                default: false,
+                additionalParams: true,
+                optional: true
+            },
+            {
+                label: 'MRL Truncated Dimensions',
+                name: 'mrlDimensions',
+                description:
+                    'Comma-separated list of truncated dimensions to store alongside the full embedding. E.g. "512, 256, 128". Each must be smaller than the full Vector Dimension.',
+                type: 'string',
+                placeholder: '512, 256',
+                additionalParams: true,
+                optional: true
+            },
+            {
+                label: 'MRL Search Vector',
+                name: 'mrlSearchVector',
+                description:
+                    'Which named vector to use for similarity search. "full" uses the original embedding, or specify a dimension number (e.g. "256") to search the truncated vector. Smaller dimensions are faster but less precise.',
+                type: 'string',
+                default: 'full',
+                placeholder: 'full',
+                additionalParams: true,
+                optional: true
+            },
+            {
                 label: 'Additional Collection Cofiguration',
                 name: 'qdrantCollectionConfiguration',
                 description:
@@ -205,6 +301,10 @@ class Qdrant_VectorStores implements INode {
             const metadataPayloadKey = nodeData.inputs?.metadataPayloadKey || 'metadata'
             const isFileUploadEnabled = nodeData.inputs?.fileUpload as boolean
 
+            const mrlEnabled = nodeData.inputs?.mrlEnabled as boolean
+            const mrlDimensionsRaw = (nodeData.inputs?.mrlDimensions as string) || ''
+            const mrlDimensions = mrlEnabled ? parseMrlDimensions(mrlDimensionsRaw) : []
+
             const credentialData = await getCredentialData(nodeData.credential ?? '', options)
             const qdrantApiKey = getCredentialParam('qdrantApiKey', credentialData, nodeData)
 
@@ -217,7 +317,7 @@ class Qdrant_VectorStores implements INode {
             })
 
             const flattenDocs = docs && docs.length ? flatten(docs) : []
-            const finalDocs = []
+            const finalDocs: Document[] = []
             for (let i = 0; i < flattenDocs.length; i += 1) {
                 if (flattenDocs[i] && flattenDocs[i].pageContent) {
                     if (isFileUploadEnabled && options.chatId) {
@@ -227,16 +327,19 @@ class Qdrant_VectorStores implements INode {
                 }
             }
 
+            const fullDimension = qdrantVectorDimension ? parseInt(qdrantVectorDimension, 10) : 1536
+            const distance = qdrantSimilarity ?? 'Cosine'
+
+            const collectionConfig =
+                mrlEnabled && mrlDimensions.length > 0
+                    ? { vectors: buildMrlVectorsConfig(fullDimension, mrlDimensions, distance) }
+                    : { vectors: { size: fullDimension, distance } }
+
             const dbConfig: QdrantLibArgs = {
                 client: client as any,
                 url: qdrantServerUrl,
                 collectionName,
-                collectionConfig: {
-                    vectors: {
-                        size: qdrantVectorDimension ? parseInt(qdrantVectorDimension, 10) : 1536,
-                        distance: qdrantSimilarity ?? 'Cosine'
-                    }
-                },
+                collectionConfig,
                 contentPayloadKey,
                 metadataPayloadKey
             }
@@ -244,7 +347,12 @@ class Qdrant_VectorStores implements INode {
             try {
                 if (recordManager) {
                     const vectorStore = new QdrantVectorStore(embeddings, dbConfig)
-                    await vectorStore.ensureCollection()
+
+                    if (mrlEnabled && mrlDimensions.length > 0) {
+                        await ensureMrlCollection(client, collectionName, collectionConfig)
+                    } else {
+                        await vectorStore.ensureCollection()
+                    }
 
                     vectorStore.addVectors = async (
                         vectors: number[][],
@@ -255,11 +363,18 @@ class Qdrant_VectorStores implements INode {
                             return
                         }
 
-                        await vectorStore.ensureCollection()
+                        if (mrlEnabled && mrlDimensions.length > 0) {
+                            await ensureMrlCollection(client, collectionName, collectionConfig)
+                        } else {
+                            await vectorStore.ensureCollection()
+                        }
 
                         const points = vectors.map((embedding, idx) => ({
                             id: documentOptions?.ids?.length ? documentOptions?.ids[idx] : uuid(),
-                            vector: embedding,
+                            vector:
+                                mrlEnabled && mrlDimensions.length > 0
+                                    ? buildMrlVectorMap(embedding, mrlDimensions, fullDimension)
+                                    : embedding,
                             payload: {
                                 [contentPayloadKey]: documents[idx].pageContent,
                                 [metadataPayloadKey]: documents[idx].metadata,
@@ -274,13 +389,13 @@ class Qdrant_VectorStores implements INode {
                                     const batchPoints = points.slice(i, i + batchSize)
                                     await client.upsert(collectionName, {
                                         wait: true,
-                                        points: batchPoints
+                                        points: batchPoints as any
                                     })
                                 }
                             } else {
                                 await client.upsert(collectionName, {
                                     wait: true,
-                                    points
+                                    points: points as any
                                 })
                             }
                         } catch (e: any) {
@@ -318,16 +433,50 @@ class Qdrant_VectorStores implements INode {
 
                     return res
                 } else {
-                    if (_batchSize) {
-                        const batchSize = parseInt(_batchSize, 10)
-                        for (let i = 0; i < finalDocs.length; i += batchSize) {
-                            const batch = finalDocs.slice(i, i + batchSize)
-                            await QdrantVectorStore.fromDocuments(batch, embeddings, dbConfig)
+                    if (mrlEnabled && mrlDimensions.length > 0) {
+                        await ensureMrlCollection(client, collectionName, collectionConfig)
+
+                        const texts = finalDocs.map((doc) => doc.pageContent)
+                        const allEmbeddings = await embeddings.embedDocuments(texts)
+
+                        const points = allEmbeddings.map((embedding: number[], idx: number) => ({
+                            id: uuid(),
+                            vector: buildMrlVectorMap(embedding, mrlDimensions, fullDimension),
+                            payload: {
+                                [contentPayloadKey]: finalDocs[idx].pageContent,
+                                [metadataPayloadKey]: finalDocs[idx].metadata
+                            }
+                        }))
+
+                        if (_batchSize) {
+                            const batchSize = parseInt(_batchSize, 10)
+                            for (let i = 0; i < points.length; i += batchSize) {
+                                const batchPoints = points.slice(i, i + batchSize)
+                                await client.upsert(collectionName, {
+                                    wait: true,
+                                    points: batchPoints as any
+                                })
+                            }
+                        } else {
+                            await client.upsert(collectionName, {
+                                wait: true,
+                                points: points as any
+                            })
                         }
+
+                        return { numAdded: finalDocs.length, addedDocs: finalDocs }
                     } else {
-                        await QdrantVectorStore.fromDocuments(finalDocs, embeddings, dbConfig)
+                        if (_batchSize) {
+                            const batchSize = parseInt(_batchSize, 10)
+                            for (let i = 0; i < finalDocs.length; i += batchSize) {
+                                const batch = finalDocs.slice(i, i + batchSize)
+                                await QdrantVectorStore.fromDocuments(batch, embeddings, dbConfig)
+                            }
+                        } else {
+                            await QdrantVectorStore.fromDocuments(finalDocs, embeddings, dbConfig)
+                        }
+                        return { numAdded: finalDocs.length, addedDocs: finalDocs }
                     }
-                    return { numAdded: finalDocs.length, addedDocs: finalDocs }
                 }
             } catch (e) {
                 throw new Error(e)
@@ -416,6 +565,9 @@ class Qdrant_VectorStores implements INode {
         const metadataPayloadKey = nodeData.inputs?.metadataPayloadKey || 'metadata'
         const isFileUploadEnabled = nodeData.inputs?.fileUpload as boolean
 
+        const mrlEnabled = nodeData.inputs?.mrlEnabled as boolean
+        const mrlSearchVector = (nodeData.inputs?.mrlSearchVector as string) || 'full'
+
         const k = topK ? parseFloat(topK) : 4
 
         const credentialData = await getCredentialData(nodeData.credential ?? '', options)
@@ -479,6 +631,49 @@ class Qdrant_VectorStores implements INode {
         }
 
         const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, dbConfig)
+
+        // For MRL: override similaritySearchVectorWithScore to use the `using` parameter
+        if (mrlEnabled && mrlSearchVector) {
+            const searchVectorName = mrlSearchVector
+            const origFilter = retrieverConfig.filter
+
+            vectorStore.similaritySearchVectorWithScore = async (
+                query: number[],
+                searchK: number,
+                filter?: Record<string, any>
+            ): Promise<[Document, number][]> => {
+                const searchFilter = filter ?? origFilter
+
+                // Truncate query vector if searching a smaller named vector
+                let searchQuery: number[] = query
+                if (searchVectorName !== 'full') {
+                    const targetDim = parseInt(searchVectorName, 10)
+                    if (!isNaN(targetDim) && query.length > targetDim) {
+                        searchQuery = truncateAndNormalize(query, targetDim)
+                    }
+                }
+
+                const results = (
+                    await client.query(collectionName, {
+                        query: searchQuery,
+                        using: searchVectorName,
+                        limit: searchK,
+                        filter: searchFilter,
+                        with_payload: [metadataPayloadKey, contentPayloadKey],
+                        with_vector: false
+                    })
+                ).points
+
+                return results.map((res: any) => [
+                    new Document({
+                        id: res.id,
+                        metadata: res.payload?.[metadataPayloadKey],
+                        pageContent: res.payload?.[contentPayloadKey] ?? ''
+                    }),
+                    res.score
+                ])
+            }
+        }
 
         if (output === 'retriever') {
             const retriever = vectorStore.asRetriever(retrieverConfig)
