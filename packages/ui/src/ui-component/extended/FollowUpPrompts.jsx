@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { Box, Button, FormControl, ListItem, ListItemAvatar, ListItemText, MenuItem, Select, Typography } from '@mui/material'
+import { Box, Button, Chip, FormControl, ListItem, ListItemAvatar, ListItemText, MenuItem, Select, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useDispatch } from 'react-redux'
 import { useTheme } from '@mui/material/styles'
@@ -27,9 +27,9 @@ import { IconX } from '@tabler/icons-react'
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
 
 const promptDescription =
-    'Prompt to generate questions based on the conversation history. You can use variable {history} to refer to the conversation history.'
+    'Prompt to generate follow-up questions. Available variables: {history} (assistant response), {question} (user question), {sources} (retrieved source documents).'
 const defaultPrompt =
-    'Given the following conversations: {history}. Please help me predict the three most likely questions that human would ask and keeping each question short and concise.'
+    'The user asked: {question}\n\nAssistant response: {history}\n\nRetrieved source documents:\n{sources}\n\nBased on the source documents above, generate three short follow-up questions the user might ask next. Only suggest questions that can be answered by the information in the provided sources. Keep each question concise.'
 
 // update when adding new providers
 const FollowUpPromptProviders = {
@@ -467,6 +467,24 @@ const FollowUpPrompts = ({ dialogProps }) => {
                 />
                 {followUpPromptsConfig && followUpPromptsConfig.status && (
                     <>
+                        <Box sx={{ width: '100%' }}>
+                            <Typography variant='h5' sx={{ mb: 1 }}>Source Processing</Typography>
+                            <FormControl fullWidth>
+                                <Select
+                                    size='small'
+                                    value={followUpPromptsConfig.sourceProcessing || 'smart'}
+                                    onChange={(e) => handleChange('sourceProcessing', e.target.value)}
+                                    sx={{
+                                        '& .MuiSvgIcon-root': {
+                                            color: theme?.customization?.isDarkMode ? '#fff' : 'inherit'
+                                        }
+                                    }}
+                                >
+                                    <MenuItem value='smart'>Smart Analysis (filters out discussed content)</MenuItem>
+                                    <MenuItem value='full'>Full Context (passes all retrieved sources as-is)</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Box>
                         <Typography variant='h5'>Providers</Typography>
                         <FormControl fullWidth>
                             <Select
@@ -546,17 +564,38 @@ const FollowUpPrompts = ({ dialogProps }) => {
                                         {(inputParam.type === 'string' ||
                                             inputParam.type === 'password' ||
                                             inputParam.type === 'number') && (
-                                            <Input
-                                                key={`${selectedProvider}-${inputParam.name}`}
-                                                inputParam={inputParam}
-                                                onChange={(newValue) => setValue(newValue, selectedProvider, inputParam.name)}
-                                                value={
-                                                    followUpPromptsConfig[selectedProvider] &&
-                                                    followUpPromptsConfig[selectedProvider][inputParam.name]
-                                                        ? followUpPromptsConfig[selectedProvider][inputParam.name]
-                                                        : inputParam.default ?? ''
-                                                }
-                                            />
+                                            <>
+                                                <Input
+                                                    key={`${selectedProvider}-${inputParam.name}`}
+                                                    inputParam={inputParam}
+                                                    onChange={(newValue) => setValue(newValue, selectedProvider, inputParam.name)}
+                                                    value={
+                                                        followUpPromptsConfig[selectedProvider] &&
+                                                        followUpPromptsConfig[selectedProvider][inputParam.name]
+                                                            ? followUpPromptsConfig[selectedProvider][inputParam.name]
+                                                            : inputParam.default ?? ''
+                                                    }
+                                                />
+                                                {inputParam.name === 'prompt' && (
+                                                    <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
+                                                        {['{history}', '{question}', '{sources}'].map((variable) => (
+                                                            <Chip
+                                                                key={variable}
+                                                                label={variable}
+                                                                size='small'
+                                                                variant='outlined'
+                                                                onClick={() => {
+                                                                    const current =
+                                                                        followUpPromptsConfig[selectedProvider]?.[inputParam.name] ||
+                                                                        inputParam.default ||
+                                                                        ''
+                                                                    setValue(current + ' ' + variable, selectedProvider, inputParam.name)
+                                                                }}
+                                                            />
+                                                        ))}
+                                                    </Box>
+                                                )}
+                                            </>
                                         )}
 
                                         {inputParam.type === 'asyncOptions' && (

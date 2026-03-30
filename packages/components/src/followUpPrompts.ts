@@ -5,7 +5,6 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { ChatMistralAI } from '@langchain/mistralai'
 import { ChatOpenAI, AzureChatOpenAI } from '@langchain/openai'
 import { z } from 'zod/v3'
-import { PromptTemplate } from '@langchain/core/prompts'
 import { StructuredOutputParser } from '@langchain/core/output_parsers'
 import { ChatGroq } from '@langchain/groq'
 import { Ollama } from 'ollama'
@@ -20,6 +19,58 @@ export interface FollowUpPromptResult {
     questions: string[]
 }
 
+/**
+ * Extract sentences from source documents that were NOT already covered in the conversation.
+ * Compares each sentence against the full chat history using word overlap.
+ * Returns a compact string of unused content, capped to limit token cost.
+ */
+function extractUnusedContent(rawSourceDocuments: string, conversationText: string, maxChars: number = 1000): string {
+    if (!rawSourceDocuments) return ''
+    let docs: any[]
+    try {
+        docs = JSON.parse(rawSourceDocuments)
+    } catch {
+        return ''
+    }
+    if (!Array.isArray(docs) || docs.length === 0) return ''
+
+    // Build a set of normalized words from the full conversation history
+    const normalize = (text: string) =>
+        text
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '')
+            .split(/\s+/)
+            .filter((w) => w.length > 3)
+    const conversationWords = new Set(normalize(conversationText))
+
+    // Split source docs into sentences, score each against conversation
+    const unusedSentences: string[] = []
+    for (const doc of docs) {
+        const content = doc.pageContent || ''
+        const sentences = content.split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length >= 20)
+
+        for (const sentence of sentences) {
+            const words = normalize(sentence)
+            if (words.length === 0) continue
+            const overlapCount = words.filter((w: string) => conversationWords.has(w)).length
+            const overlapRatio = overlapCount / words.length
+            if (overlapRatio < 0.5) {
+                unusedSentences.push(sentence.trim())
+            }
+        }
+    }
+
+    if (unusedSentences.length === 0) return ''
+
+    // Cap total output to maxChars
+    let result = ''
+    for (const sentence of unusedSentences) {
+        if (result.length + sentence.length + 2 > maxChars) break
+        result += (result ? '\n' : '') + '- ' + sentence
+    }
+    return result
+}
+
 export const generateFollowUpPrompts = async (
     followUpPromptsConfig: FollowUpPromptConfig,
     apiMessageContent: string,
@@ -31,7 +82,33 @@ export const generateFollowUpPrompts = async (
         if (!providerConfig) return undefined
         const credentialId = providerConfig.credentialId as string
         const credentialData = await getCredentialData(credentialId ?? '', options)
-        const followUpPromptsPrompt = providerConfig.prompt.replace('{history}', apiMessageContent)
+
+        const question = (options.question as string) || ''
+        const chatHistory = (options.chatHistory as string) || ''
+        const rawSourceDocuments = (options.sourceDocuments as string) || ''
+        const sourceProcessing = (followUpPromptsConfig as any).sourceProcessing || 'smart'
+
+        let sources = ''
+        if (sourceProcessing === 'full') {
+            // Pass raw pageContent from source documents, no filtering
+            try {
+                const docs = JSON.parse(rawSourceDocuments)
+                if (Array.isArray(docs)) {
+                    sources = docs.map((doc: any) => doc.pageContent || '').join('\n\n')
+                }
+            } catch {
+                sources = ''
+            }
+        } else {
+            // Smart: filter out sentences already covered in conversation
+            const fullConversation = chatHistory + '\n' + question + '\n' + apiMessageContent
+            sources = extractUnusedContent(rawSourceDocuments, fullConversation)
+        }
+
+        const followUpPromptsPrompt = providerConfig.prompt
+            .replace('{history}', apiMessageContent)
+            .replace('{question}', question)
+            .replace('{sources}', sources)
 
         switch (followUpPromptsConfig.selectedProvider) {
             case FollowUpPromptProvider.ANTHROPIC: {
@@ -64,16 +141,9 @@ export const generateFollowUpPrompts = async (
                 // use structured output parser because withStructuredOutput is not working
                 const parser = StructuredOutputParser.fromZodSchema(FollowUpPromptType as any)
                 const formatInstructions = parser.getFormatInstructions()
-                const prompt = PromptTemplate.fromTemplate(`
-                    ${providerConfig.prompt}
-                                
-                    {format_instructions}
-                `)
-                const chain = prompt.pipe(llm).pipe(parser)
-                const structuredResponse = await chain.invoke({
-                    history: apiMessageContent,
-                    format_instructions: formatInstructions
-                })
+                const azurePrompt = followUpPromptsPrompt + '\n\n' + formatInstructions
+                const chain = llm.pipe(parser)
+                const structuredResponse = await chain.invoke(azurePrompt)
                 return structuredResponse as FollowUpPromptResult
             }
             case FollowUpPromptProvider.GOOGLE_GENAI: {
