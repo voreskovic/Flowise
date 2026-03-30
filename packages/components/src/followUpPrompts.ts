@@ -24,7 +24,13 @@ export interface FollowUpPromptResult {
  * Compares each sentence against the full chat history using word overlap.
  * Returns a compact string of unused content, capped to limit token cost.
  */
-function extractUnusedContent(rawSourceDocuments: string, conversationText: string, maxChars: number = 1000): string {
+function extractUnusedContent(
+    rawSourceDocuments: string,
+    conversationText: string,
+    overlapThreshold: number = 0.5,
+    minWordLength: number = 3,
+    maxChars: number = 1000
+): string {
     if (!rawSourceDocuments) return ''
     let docs: any[]
     try {
@@ -34,16 +40,14 @@ function extractUnusedContent(rawSourceDocuments: string, conversationText: stri
     }
     if (!Array.isArray(docs) || docs.length === 0) return ''
 
-    // Build a set of normalized words from the full conversation history
     const normalize = (text: string) =>
         text
             .toLowerCase()
-            .replace(/[^a-z0-9\s]/g, '')
+            .replace(/[^\p{L}\p{N}\s]/gu, '')
             .split(/\s+/)
-            .filter((w) => w.length > 3)
+            .filter((w) => w.length >= minWordLength)
     const conversationWords = new Set(normalize(conversationText))
 
-    // Split source docs into sentences, score each against conversation
     const unusedSentences: string[] = []
     for (const doc of docs) {
         const content = doc.pageContent || ''
@@ -54,7 +58,7 @@ function extractUnusedContent(rawSourceDocuments: string, conversationText: stri
             if (words.length === 0) continue
             const overlapCount = words.filter((w: string) => conversationWords.has(w)).length
             const overlapRatio = overlapCount / words.length
-            if (overlapRatio < 0.5) {
+            if (overlapRatio < overlapThreshold) {
                 unusedSentences.push(sentence.trim())
             }
         }
@@ -62,7 +66,6 @@ function extractUnusedContent(rawSourceDocuments: string, conversationText: stri
 
     if (unusedSentences.length === 0) return ''
 
-    // Cap total output to maxChars
     let result = ''
     for (const sentence of unusedSentences) {
         if (result.length + sentence.length + 2 > maxChars) break
@@ -88,9 +91,12 @@ export const generateFollowUpPrompts = async (
         const rawSourceDocuments = (options.sourceDocuments as string) || ''
         const sourceProcessing = (followUpPromptsConfig as any).sourceProcessing || 'smart'
 
+        const overlapThreshold = parseFloat(`${(followUpPromptsConfig as any).overlapThreshold ?? 0.5}`)
+        const minWordLength = parseInt(`${(followUpPromptsConfig as any).minWordLength ?? 3}`, 10)
+        const maxOutputChars = parseInt(`${(followUpPromptsConfig as any).maxOutputChars ?? 1000}`, 10)
+
         let sources = ''
         if (sourceProcessing === 'full') {
-            // Pass raw pageContent from source documents, no filtering
             try {
                 const docs = JSON.parse(rawSourceDocuments)
                 if (Array.isArray(docs)) {
@@ -100,9 +106,8 @@ export const generateFollowUpPrompts = async (
                 sources = ''
             }
         } else {
-            // Smart: filter out sentences already covered in conversation
             const fullConversation = chatHistory + '\n' + question + '\n' + apiMessageContent
-            sources = extractUnusedContent(rawSourceDocuments, fullConversation)
+            sources = extractUnusedContent(rawSourceDocuments, fullConversation, overlapThreshold, minWordLength, maxOutputChars)
         }
 
         const followUpPromptsPrompt = providerConfig.prompt
