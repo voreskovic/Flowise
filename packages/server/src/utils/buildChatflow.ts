@@ -669,7 +669,8 @@ export const executeFlow = async ({
                     databaseEntities,
                     question: incomingInput.question,
                     sourceDocuments: apiMessage.sourceDocuments ?? '',
-                    chatHistory: convertChatHistoryToText(chatHistory.slice(-3))
+                    chatHistory: convertChatHistoryToText(chatHistory.slice(-3)),
+                    analytic: agentflow.analytic
                 })
                 if (generatedFollowUpPrompts?.questions) {
                     apiMessage.followUpPrompts = JSON.stringify(generatedFollowUpPrompts.questions)
@@ -884,7 +885,8 @@ export const executeFlow = async ({
                 databaseEntities,
                 question: incomingInput.question,
                 sourceDocuments: apiMessage.sourceDocuments ?? '',
-                chatHistory: convertChatHistoryToText(chatHistory.slice(-3))
+                chatHistory: convertChatHistoryToText(chatHistory.slice(-3)),
+                analytic: chatflow.analytic
             })
             if (followUpPrompts?.questions) {
                 apiMessage.followUpPrompts = JSON.stringify(followUpPrompts.questions)
