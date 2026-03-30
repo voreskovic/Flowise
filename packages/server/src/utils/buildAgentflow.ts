@@ -2293,7 +2293,8 @@ export const executeAgentFlow = async ({
             databaseEntities,
             question: incomingInput.question,
             sourceDocuments: apiMessage.sourceDocuments ?? '',
-            chatHistory: convertChatHistoryToText(pastChatHistory.slice(-3))
+            chatHistory: convertChatHistoryToText(pastChatHistory.slice(-3)),
+            analytic: chatflow.analytic
         })
         if (followUpPrompts?.questions) {
             apiMessage.followUpPrompts = JSON.stringify(followUpPrompts.questions)
