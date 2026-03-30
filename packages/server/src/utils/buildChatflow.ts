@@ -18,7 +18,8 @@ import {
     removeSpecificFileFromUpload,
     EvaluationRunner,
     handleEscapeCharacters,
-    IServerSideEventStreamer
+    IServerSideEventStreamer,
+    convertChatHistoryToText
 } from 'flowise-components'
 import { StatusCodes } from 'http-status-codes'
 import {
@@ -665,7 +666,10 @@ export const executeFlow = async ({
                     chatId,
                     chatflowid: agentflow.id,
                     appDataSource,
-                    databaseEntities
+                    databaseEntities,
+                    question: incomingInput.question,
+                    sourceDocuments: apiMessage.sourceDocuments ?? '',
+                    chatHistory: convertChatHistoryToText(chatHistory.slice(-3))
                 })
                 if (generatedFollowUpPrompts?.questions) {
                     apiMessage.followUpPrompts = JSON.stringify(generatedFollowUpPrompts.questions)
@@ -877,7 +881,10 @@ export const executeFlow = async ({
                 chatId,
                 chatflowid,
                 appDataSource,
-                databaseEntities
+                databaseEntities,
+                question: incomingInput.question,
+                sourceDocuments: apiMessage.sourceDocuments ?? '',
+                chatHistory: convertChatHistoryToText(chatHistory.slice(-3))
             })
             if (followUpPrompts?.questions) {
                 apiMessage.followUpPrompts = JSON.stringify(followUpPrompts.questions)
