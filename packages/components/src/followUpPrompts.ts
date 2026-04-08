@@ -248,9 +248,19 @@ export const generateFollowUpPrompts = async (
 
         // Gate: deterministic exhaustion check against full conversation — skip LLM call if not enough unused content
         if (skipWhenExhausted) {
-            const { unusedCount } = extractUnusedContent(rawSourceDocuments, fullConversationForCheck, overlapThreshold, minWordLength, maxOutputChars)
+            const exhaustionCheck = extractUnusedContent(rawSourceDocuments, fullConversationForCheck, overlapThreshold, minWordLength, maxOutputChars)
+            console.log(`[follow-up-prompts] Exhaustion gate: ${exhaustionCheck.unusedCount}/${exhaustionCheck.totalCount} unused sentences, text length: ${exhaustionCheck.text.length}`)
+            if (exhaustionCheck.unusedCount > 0 && exhaustionCheck.unusedCount < 10) {
+                console.log(`[follow-up-prompts] Unused sentences:\n${exhaustionCheck.text}`)
+            }
             // Need at least 3 unused sentences to generate 3 follow-up questions — below that it's scraps
-            if (unusedCount < 3) return undefined
+            if (exhaustionCheck.unusedCount < 3) {
+                console.log(`[follow-up-prompts] Gate BLOCKED — not enough unused content, skipping LLM call`)
+                return undefined
+            }
+            console.log(`[follow-up-prompts] Gate PASSED — proceeding with LLM call`)
+        } else {
+            console.log(`[follow-up-prompts] skipWhenExhausted is disabled`)
         }
 
         let sources = ''
