@@ -27,9 +27,18 @@ import { IconX } from '@tabler/icons-react'
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
 
 const promptDescription =
-    'Prompt to generate follow-up questions. Available variables: {history} (assistant response), {question} (user question), {sources} (retrieved source documents).'
+    'Prompt to generate follow-up questions. Available variables: {history} (assistant response), {question} (user question), {sources} (retrieved source documents), {previousQuestions} (list of previously asked questions for deduplication).'
 const defaultPrompt =
-    'The user asked: {question}\n\nAssistant response: {history}\n\nRetrieved source documents:\n{sources}\n\nBased on the source documents above, generate three short follow-up questions the user might ask next. Only suggest questions that can be answered by the information in the provided sources. Keep each question concise.'
+    'The user asked: {question}\n\nAssistant response: {history}\n\nRetrieved source documents:\n{sources}\n\nPreviously asked questions:\n{previousQuestions}\n\nBased on the source documents above, generate three short follow-up questions the user might ask next. Only suggest questions that can be answered by the information in the provided sources. DO NOT generate any question that is the same as or semantically similar to a previously asked question. Keep each question concise.'
+
+const chatHistoryModeOptions = [
+    { label: 'Last 3 messages', value: 'last-3' },
+    { label: 'Last 5 messages', value: 'last-5' },
+    { label: 'Last 10 messages', value: 'last-10' },
+    { label: 'All messages', value: 'all' },
+    { label: 'User questions only', value: 'user-only' },
+    { label: 'User questions + AI responses', value: 'user-and-ai' }
+]
 
 // update when adding new providers
 const FollowUpPromptProviders = {
@@ -540,6 +549,77 @@ const FollowUpPrompts = ({ dialogProps }) => {
                                 </Box>
                             </Box>
                         )}
+                        <Typography variant='h5'>Deduplication & Optimization</Typography>
+                        <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2, pl: 1 }}>
+                            <Box sx={{ width: '100%' }}>
+                                <Typography variant='body2' sx={{ mb: 0.5 }}>
+                                    Chat History Mode
+                                    <TooltipWithParser
+                                        style={{ marginLeft: 10 }}
+                                        title='Controls how much conversation history is used for source filtering and deduplication. "User questions only" extracts only human messages. "All messages" passes the entire conversation.'
+                                    />
+                                </Typography>
+                                <FormControl fullWidth>
+                                    <Select
+                                        size='small'
+                                        value={followUpPromptsConfig.chatHistoryMode || 'last-3'}
+                                        onChange={(e) => handleChange('chatHistoryMode', e.target.value)}
+                                        sx={{
+                                            '& .MuiSvgIcon-root': {
+                                                color: theme?.customization?.isDarkMode ? '#fff' : 'inherit'
+                                            }
+                                        }}
+                                    >
+                                        {chatHistoryModeOptions.map((opt) => (
+                                            <MenuItem key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                            </Box>
+                            <SwitchInput
+                                label='Skip generation when topics exhausted'
+                                onChange={(value) => handleChange('skipWhenExhausted', value)}
+                                value={followUpPromptsConfig.skipWhenExhausted ?? true}
+                            />
+                            {(followUpPromptsConfig.skipWhenExhausted ?? true) && (
+                                <Typography variant='body2' sx={{ pl: 2, color: 'text.secondary', mt: -1.5 }}>
+                                    Deterministically skips the LLM call when all source document topics have been covered in conversation (zero token cost).
+                                </Typography>
+                            )}
+                            <SwitchInput
+                                label='Deduplicate against previous questions'
+                                onChange={(value) => handleChange('deduplicationEnabled', value)}
+                                value={followUpPromptsConfig.deduplicationEnabled ?? true}
+                            />
+                            {(followUpPromptsConfig.deduplicationEnabled ?? true) && (
+                                <Box sx={{ width: '100%', pl: 2 }}>
+                                    <Typography variant='body2' sx={{ color: 'text.secondary', mb: 1 }}>
+                                        After LLM generates candidates, filters out any question that overlaps with a previously asked question (zero token cost).
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', gap: 2 }}>
+                                        <Box sx={{ flex: 1 }}>
+                                            <Typography variant='body2' sx={{ mb: 0.5 }}>
+                                                Dedup Overlap Threshold
+                                                <TooltipWithParser
+                                                    style={{ marginLeft: 10 }}
+                                                    title='Word overlap ratio above which a generated question is considered a duplicate of a previous question. Lower = stricter filtering. Default: 0.6'
+                                                />
+                                            </Typography>
+                                            <OutlinedInput
+                                                size='small'
+                                                type='number'
+                                                fullWidth
+                                                inputProps={{ min: 0.1, max: 0.9, step: 0.1 }}
+                                                value={followUpPromptsConfig.deduplicationThreshold ?? 0.6}
+                                                onChange={(e) => handleChange('deduplicationThreshold', parseFloat(e.target.value))}
+                                            />
+                                        </Box>
+                                    </Box>
+                                </Box>
+                            )}
+                        </Box>
                         <Typography variant='h5'>Providers</Typography>
                         <FormControl fullWidth>
                             <Select
@@ -633,7 +713,7 @@ const FollowUpPrompts = ({ dialogProps }) => {
                                                 />
                                                 {inputParam.name === 'prompt' && (
                                                     <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
-                                                        {['{history}', '{question}', '{sources}'].map((variable) => (
+                                                        {['{history}', '{question}', '{sources}', '{previousQuestions}'].map((variable) => (
                                                             <Chip
                                                                 key={variable}
                                                                 label={variable}

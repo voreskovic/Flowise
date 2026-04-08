@@ -669,7 +669,7 @@ export const executeFlow = async ({
                     databaseEntities,
                     question: incomingInput.question,
                     sourceDocuments: apiMessage.sourceDocuments ?? '',
-                    chatHistory: convertChatHistoryToText(chatHistory.slice(-3)),
+                    chatHistory: convertChatHistoryToText(chatHistory),
                     analytic: agentflow.analytic
                 })
                 if (generatedFollowUpPrompts?.questions) {
@@ -885,7 +885,7 @@ export const executeFlow = async ({
                 databaseEntities,
                 question: incomingInput.question,
                 sourceDocuments: apiMessage.sourceDocuments ?? '',
-                chatHistory: convertChatHistoryToText(chatHistory.slice(-3)),
+                chatHistory: convertChatHistoryToText(chatHistory),
                 analytic: chatflow.analytic
             })
             if (followUpPrompts?.questions) {
