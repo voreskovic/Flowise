@@ -253,6 +253,72 @@ function deduplicateQuestions(
 }
 
 /**
+ * Identify which previous follow-up prompts were NOT clicked by the user.
+ * Compares each previous prompt against the current question using n-gram overlap.
+ * Returns the unclicked prompts (candidates for carry-forward).
+ */
+function getUnclickedPrompts(
+    previousFollowUpPrompts: string[],
+    currentQuestion: string,
+    ngramSize: number = 3,
+    matchThreshold: number = 0.4
+): string[] {
+    if (!previousFollowUpPrompts.length || !currentQuestion.trim()) return previousFollowUpPrompts
+
+    const questionNgrams = extractNgrams(currentQuestion, ngramSize)
+
+    return previousFollowUpPrompts.filter((prompt) => {
+        const promptNgrams = extractNgrams(prompt, ngramSize)
+        if (promptNgrams.size === 0) return true
+        let overlapCount = 0
+        for (const ng of promptNgrams) {
+            if (questionNgrams.has(ng)) overlapCount++
+        }
+        const overlapRatio = overlapCount / promptNgrams.size
+        // High overlap = user clicked this one → exclude from carry-forward
+        return overlapRatio < matchThreshold
+    })
+}
+
+/**
+ * Remove near-duplicates within a candidate list (intra-candidate dedup).
+ * Keeps the first occurrence (earlier = higher priority).
+ */
+function deduplicateWithinCandidates(
+    candidates: string[],
+    threshold: number = 0.6,
+    minWordLength: number = 3
+): string[] {
+    const result: string[] = []
+    const keptSets: Set<string>[] = []
+
+    for (const candidate of candidates) {
+        const candidateWords = normalize(candidate, minWordLength)
+        if (candidateWords.length === 0) {
+            result.push(candidate)
+            continue
+        }
+
+        let isDuplicate = false
+        for (const keptSet of keptSets) {
+            if (keptSet.size === 0) continue
+            const overlapCount = candidateWords.filter((w) => keptSet.has(w)).length
+            const overlapRatio = overlapCount / Math.max(candidateWords.length, 1)
+            if (overlapRatio >= threshold) {
+                isDuplicate = true
+                break
+            }
+        }
+
+        if (!isDuplicate) {
+            result.push(candidate)
+            keptSets.push(new Set(candidateWords))
+        }
+    }
+    return result
+}
+
+/**
  * Build LangChain callbacks for tracing follow-up prompt generation.
  * Creates a separate Langfuse trace grouped under the same session (chatId).
  */
@@ -308,19 +374,29 @@ export const generateFollowUpPrompts = async (
         // Apply chat history windowing (for prompt context) and extract ALL previous questions (for dedup)
         const { conversationText, previousQuestions } = applyChatHistoryMode(chatHistory, question, chatHistoryMode)
 
+        // Carry-forward: identify unclicked prompts from previous turn
+        const prevFollowUps = (options.previousFollowUpPrompts as string[]) || []
+        const carriedForward = getUnclickedPrompts(prevFollowUps, question)
+
         // Exhaustion check ALWAYS uses full unwindowed chat history — windowing only affects prompt token cost
         const fullConversationForCheck = chatHistory + '\n' + question + '\n' + apiMessageContent
         const windowedConversation = conversationText + '\n' + question + '\n' + apiMessageContent
 
         // Gate: deterministic exhaustion check using character n-gram overlap (handles morphological variation)
+        let exhausted = false
         if (skipWhenExhausted) {
             const ngramCheck = countUnusedSentencesNgram(rawSourceDocuments, fullConversationForCheck)
-            console.log(`[follow-up-prompts] Exhaustion gate (n-gram): ${ngramCheck.unusedCount}/${ngramCheck.totalCount} unused sentences`)
-            if (ngramCheck.unusedCount < 3) {
-                console.log(`[follow-up-prompts] Gate BLOCKED — not enough unused content, skipping LLM call`)
-                return undefined
+            if (ngramCheck.unusedCount < 3) exhausted = true
+        }
+
+        // If exhausted but we have carried-forward prompts, return those (no LLM call)
+        if (exhausted) {
+            if (carriedForward.length > 0) {
+                let carried = deduplicateQuestions(carriedForward, previousQuestions, deduplicationThreshold, minWordLength)
+                carried = deduplicateWithinCandidates(carried, deduplicationThreshold, minWordLength)
+                return carried.length > 0 ? { questions: carried.slice(0, 3) } : undefined
             }
-            console.log(`[follow-up-prompts] Gate PASSED — proceeding with LLM call`)
+            return undefined
         }
 
         let sources = ''
@@ -334,7 +410,6 @@ export const generateFollowUpPrompts = async (
                 sources = ''
             }
         } else {
-            // Windowed conversation for source filtering (controls token cost sent to LLM)
             const result = extractUnusedContent(rawSourceDocuments, windowedConversation, overlapThreshold, minWordLength, maxOutputChars)
             sources = result.text
         }
@@ -474,14 +549,21 @@ export const generateFollowUpPrompts = async (
             }
         }
 
-        if (!llmResult?.questions?.length) return undefined
+        // Merge: fresh LLM results first (priority), then carried-forward
+        let merged: string[] = [...(llmResult?.questions || []), ...carriedForward]
 
-        // Deterministic post-filter: remove questions too similar to previously asked ones
+        // Dedup against previously asked questions
         if (deduplicationEnabled && previousQuestions.length > 0) {
-            llmResult.questions = deduplicateQuestions(llmResult.questions, previousQuestions, deduplicationThreshold, minWordLength)
+            merged = deduplicateQuestions(merged, previousQuestions, deduplicationThreshold, minWordLength)
         }
 
-        return llmResult.questions.length > 0 ? llmResult : undefined
+        // Dedup within the merged list (removes near-duplicate candidates)
+        merged = deduplicateWithinCandidates(merged, deduplicationThreshold, minWordLength)
+
+        // Take top 3
+        merged = merged.slice(0, 3)
+
+        return merged.length > 0 ? { questions: merged } : undefined
     } else {
         return undefined
     }
