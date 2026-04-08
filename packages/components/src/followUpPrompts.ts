@@ -32,6 +32,72 @@ function normalize(text: string, minWordLength: number = 3): string[] {
         .filter((w) => w.length >= minWordLength)
 }
 
+/**
+ * Extract character n-grams from text.
+ * Handles morphological variation: "mostovi"/"mostove" share trigrams (mos,ost,sto,tov).
+ * Used by the exhaustion gate for language-agnostic topic coverage detection.
+ */
+function extractNgrams(text: string, n: number = 3): Set<string> {
+    const cleaned = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ' ').replace(/\s+/g, ' ').trim()
+    const ngrams = new Set<string>()
+    const words = cleaned.split(' ')
+    for (const word of words) {
+        if (word.length < n) {
+            ngrams.add(word)
+        } else {
+            for (let i = 0; i <= word.length - n; i++) {
+                ngrams.add(word.substring(i, i + n))
+            }
+        }
+    }
+    return ngrams
+}
+
+/**
+ * Count how many source sentences are covered by conversation using character n-gram overlap.
+ * More accurate than word overlap for morphologically rich languages (Croatian, etc.).
+ */
+function countUnusedSentencesNgram(
+    rawSourceDocuments: string,
+    conversationText: string,
+    ngramSize: number = 3,
+    overlapThreshold: number = 0.3
+): { unusedCount: number; totalCount: number } {
+    const empty = { unusedCount: 0, totalCount: 0 }
+    if (!rawSourceDocuments) return empty
+    let docs: any[]
+    try {
+        docs = JSON.parse(rawSourceDocuments)
+    } catch {
+        return empty
+    }
+    if (!Array.isArray(docs) || docs.length === 0) return empty
+
+    const conversationNgrams = extractNgrams(conversationText, ngramSize)
+
+    let totalCount = 0
+    let unusedCount = 0
+    for (const doc of docs) {
+        const content = doc.pageContent || ''
+        const sentences = content.split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length >= 20)
+        totalCount += sentences.length
+
+        for (const sentence of sentences) {
+            const sentenceNgrams = extractNgrams(sentence, ngramSize)
+            if (sentenceNgrams.size === 0) continue
+            let overlapCount = 0
+            for (const ng of sentenceNgrams) {
+                if (conversationNgrams.has(ng)) overlapCount++
+            }
+            const overlapRatio = overlapCount / sentenceNgrams.size
+            if (overlapRatio < overlapThreshold) {
+                unusedCount++
+            }
+        }
+    }
+    return { unusedCount, totalCount }
+}
+
 interface UnusedContentResult {
     text: string
     unusedCount: number
@@ -246,21 +312,15 @@ export const generateFollowUpPrompts = async (
         const fullConversationForCheck = chatHistory + '\n' + question + '\n' + apiMessageContent
         const windowedConversation = conversationText + '\n' + question + '\n' + apiMessageContent
 
-        // Gate: deterministic exhaustion check against full conversation — skip LLM call if not enough unused content
+        // Gate: deterministic exhaustion check using character n-gram overlap (handles morphological variation)
         if (skipWhenExhausted) {
-            const exhaustionCheck = extractUnusedContent(rawSourceDocuments, fullConversationForCheck, overlapThreshold, minWordLength, maxOutputChars)
-            console.log(`[follow-up-prompts] Exhaustion gate: ${exhaustionCheck.unusedCount}/${exhaustionCheck.totalCount} unused sentences, text length: ${exhaustionCheck.text.length}`)
-            if (exhaustionCheck.unusedCount > 0 && exhaustionCheck.unusedCount < 10) {
-                console.log(`[follow-up-prompts] Unused sentences:\n${exhaustionCheck.text}`)
-            }
-            // Need at least 3 unused sentences to generate 3 follow-up questions — below that it's scraps
-            if (exhaustionCheck.unusedCount < 3) {
+            const ngramCheck = countUnusedSentencesNgram(rawSourceDocuments, fullConversationForCheck)
+            console.log(`[follow-up-prompts] Exhaustion gate (n-gram): ${ngramCheck.unusedCount}/${ngramCheck.totalCount} unused sentences`)
+            if (ngramCheck.unusedCount < 3) {
                 console.log(`[follow-up-prompts] Gate BLOCKED — not enough unused content, skipping LLM call`)
                 return undefined
             }
             console.log(`[follow-up-prompts] Gate PASSED — proceeding with LLM call`)
-        } else {
-            console.log(`[follow-up-prompts] skipWhenExhausted is disabled`)
         }
 
         let sources = ''
