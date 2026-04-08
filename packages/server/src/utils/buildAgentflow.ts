@@ -2284,6 +2284,20 @@ export const executeAgentFlow = async ({
     if (lastNodeOutput?.reasonContent) apiMessage.reasonContent = JSON.stringify(lastNodeOutput.reasonContent)
     if (chatflow.followUpPrompts) {
         const followUpPromptsConfig = JSON.parse(chatflow.followUpPrompts)
+        let previousFollowUpPrompts: string[] = []
+        try {
+            const lastMsg = await appDataSource.getRepository(ChatMessage).findOne({
+                where: { chatId, role: 'apiMessage' },
+                order: { createdDate: 'DESC' },
+                select: ['followUpPrompts']
+            })
+            if (lastMsg?.followUpPrompts) {
+                const parsed = JSON.parse(lastMsg.followUpPrompts)
+                previousFollowUpPrompts = Array.isArray(parsed) ? parsed : JSON.parse(parsed)
+            }
+        } catch {
+            // no previous follow-up prompts available
+        }
         const followUpPrompts = await generateFollowUpPrompts(followUpPromptsConfig, apiMessage.content, {
             orgId,
             workspaceId,
@@ -2294,7 +2308,8 @@ export const executeAgentFlow = async ({
             question: incomingInput.question,
             sourceDocuments: apiMessage.sourceDocuments ?? '',
             chatHistory: convertChatHistoryToText(pastChatHistory),
-            analytic: chatflow.analytic
+            analytic: chatflow.analytic,
+            previousFollowUpPrompts
         })
         if (followUpPrompts?.questions) {
             apiMessage.followUpPrompts = JSON.stringify(followUpPrompts.questions)
