@@ -562,7 +562,7 @@ const FollowUpPrompts = ({ dialogProps }) => {
                                 <FormControl fullWidth>
                                     <Select
                                         size='small'
-                                        value={followUpPromptsConfig.chatHistoryMode || 'last-3'}
+                                        value={followUpPromptsConfig.chatHistoryMode || 'all'}
                                         onChange={(e) => handleChange('chatHistoryMode', e.target.value)}
                                         sx={{
                                             '& .MuiSvgIcon-root': {
