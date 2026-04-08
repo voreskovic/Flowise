@@ -32,10 +32,16 @@ function normalize(text: string, minWordLength: number = 3): string[] {
         .filter((w) => w.length >= minWordLength)
 }
 
+interface UnusedContentResult {
+    text: string
+    unusedCount: number
+    totalCount: number
+}
+
 /**
  * Extract sentences from source documents that were NOT already covered in the conversation.
  * Compares each sentence against the full chat history using word overlap.
- * Returns a compact string of unused content, capped to limit token cost.
+ * Returns unused content text, plus sentence counts for the exhaustion gate.
  */
 function extractUnusedContent(
     rawSourceDocuments: string,
@@ -43,22 +49,25 @@ function extractUnusedContent(
     overlapThreshold: number = 0.5,
     minWordLength: number = 3,
     maxChars: number = 1000
-): string {
-    if (!rawSourceDocuments) return ''
+): UnusedContentResult {
+    const empty: UnusedContentResult = { text: '', unusedCount: 0, totalCount: 0 }
+    if (!rawSourceDocuments) return empty
     let docs: any[]
     try {
         docs = JSON.parse(rawSourceDocuments)
     } catch {
-        return ''
+        return empty
     }
-    if (!Array.isArray(docs) || docs.length === 0) return ''
+    if (!Array.isArray(docs) || docs.length === 0) return empty
 
     const conversationWords = new Set(normalize(conversationText, minWordLength))
 
+    let totalCount = 0
     const unusedSentences: string[] = []
     for (const doc of docs) {
         const content = doc.pageContent || ''
         const sentences = content.split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length >= 20)
+        totalCount += sentences.length
 
         for (const sentence of sentences) {
             const words = normalize(sentence, minWordLength)
@@ -71,14 +80,14 @@ function extractUnusedContent(
         }
     }
 
-    if (unusedSentences.length === 0) return ''
+    if (unusedSentences.length === 0) return { text: '', unusedCount: 0, totalCount }
 
     let result = ''
     for (const sentence of unusedSentences) {
         if (result.length + sentence.length + 2 > maxChars) break
         result += (result ? '\n' : '') + '- ' + sentence
     }
-    return result
+    return { text: result, unusedCount: unusedSentences.length, totalCount }
 }
 
 /**
@@ -237,10 +246,11 @@ export const generateFollowUpPrompts = async (
         const fullConversationForCheck = chatHistory + '\n' + question + '\n' + apiMessageContent
         const windowedConversation = conversationText + '\n' + question + '\n' + apiMessageContent
 
-        // Gate: deterministic exhaustion check against full conversation — skip LLM call if all topics covered
+        // Gate: deterministic exhaustion check against full conversation — skip LLM call if not enough unused content
         if (skipWhenExhausted) {
-            const unusedCheck = extractUnusedContent(rawSourceDocuments, fullConversationForCheck, overlapThreshold, minWordLength, maxOutputChars)
-            if (!unusedCheck) return undefined
+            const { unusedCount } = extractUnusedContent(rawSourceDocuments, fullConversationForCheck, overlapThreshold, minWordLength, maxOutputChars)
+            // Need at least 3 unused sentences to generate 3 follow-up questions — below that it's scraps
+            if (unusedCount < 3) return undefined
         }
 
         let sources = ''
@@ -255,7 +265,8 @@ export const generateFollowUpPrompts = async (
             }
         } else {
             // Windowed conversation for source filtering (controls token cost sent to LLM)
-            sources = extractUnusedContent(rawSourceDocuments, windowedConversation, overlapThreshold, minWordLength, maxOutputChars)
+            const result = extractUnusedContent(rawSourceDocuments, windowedConversation, overlapThreshold, minWordLength, maxOutputChars)
+            sources = result.text
         }
 
         const previousQuestionsText = previousQuestions.length > 0 ? previousQuestions.map((q) => '- ' + q).join('\n') : 'None yet.'
