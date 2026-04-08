@@ -221,7 +221,7 @@ export const generateFollowUpPrompts = async (
         const chatHistory = (options.chatHistory as string) || ''
         const rawSourceDocuments = (options.sourceDocuments as string) || ''
         const sourceProcessing = (followUpPromptsConfig as any).sourceProcessing || 'smart'
-        const chatHistoryMode = (followUpPromptsConfig as any).chatHistoryMode || 'last-3'
+        const chatHistoryMode = (followUpPromptsConfig as any).chatHistoryMode || 'all'
         const skipWhenExhausted = (followUpPromptsConfig as any).skipWhenExhausted ?? true
         const deduplicationEnabled = (followUpPromptsConfig as any).deduplicationEnabled ?? true
         const deduplicationThreshold = parseFloat(`${(followUpPromptsConfig as any).deduplicationThreshold ?? 0.6}`)
@@ -230,17 +230,21 @@ export const generateFollowUpPrompts = async (
         const minWordLength = parseInt(`${(followUpPromptsConfig as any).minWordLength ?? 3}`, 10)
         const maxOutputChars = parseInt(`${(followUpPromptsConfig as any).maxOutputChars ?? 1000}`, 10)
 
-        // Apply chat history windowing and extract previous questions
+        // Apply chat history windowing (for prompt context) and extract ALL previous questions (for dedup)
         const { conversationText, previousQuestions } = applyChatHistoryMode(chatHistory, question, chatHistoryMode)
-        const fullConversation = conversationText + '\n' + question + '\n' + apiMessageContent
+
+        // Exhaustion check ALWAYS uses full unwindowed chat history — windowing only affects prompt token cost
+        const fullConversationForCheck = chatHistory + '\n' + question + '\n' + apiMessageContent
+        const windowedConversation = conversationText + '\n' + question + '\n' + apiMessageContent
+
+        // Gate: deterministic exhaustion check against full conversation — skip LLM call if all topics covered
+        if (skipWhenExhausted) {
+            const unusedCheck = extractUnusedContent(rawSourceDocuments, fullConversationForCheck, overlapThreshold, minWordLength, maxOutputChars)
+            if (!unusedCheck) return undefined
+        }
 
         let sources = ''
         if (sourceProcessing === 'full') {
-            // Gate: even in full mode, check if topics are exhausted before calling LLM
-            if (skipWhenExhausted) {
-                const unusedCheck = extractUnusedContent(rawSourceDocuments, fullConversation, overlapThreshold, minWordLength, maxOutputChars)
-                if (!unusedCheck) return undefined
-            }
             try {
                 const docs = JSON.parse(rawSourceDocuments)
                 if (Array.isArray(docs)) {
@@ -250,9 +254,8 @@ export const generateFollowUpPrompts = async (
                 sources = ''
             }
         } else {
-            sources = extractUnusedContent(rawSourceDocuments, fullConversation, overlapThreshold, minWordLength, maxOutputChars)
-            // Gate: no unused content means all topics covered — skip LLM call
-            if (skipWhenExhausted && !sources) return undefined
+            // Windowed conversation for source filtering (controls token cost sent to LLM)
+            sources = extractUnusedContent(rawSourceDocuments, windowedConversation, overlapThreshold, minWordLength, maxOutputChars)
         }
 
         const previousQuestionsText = previousQuestions.length > 0 ? previousQuestions.map((q) => '- ' + q).join('\n') : 'None yet.'
