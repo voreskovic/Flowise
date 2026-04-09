@@ -21,6 +21,7 @@ interface MetadataField {
 }
 
 interface QdrantConfig {
+    enabled: boolean
     qdrantServerUrl: string
     qdrantCredentialId: string
     collectionName: string
@@ -28,8 +29,6 @@ interface QdrantConfig {
     embeddingCredentialId: string
     embeddingModelName: string
     embeddingBasePath?: string
-    retrieveEnabled: boolean
-    storeEnabled: boolean
     metadataFields: MetadataField[]
 }
 
@@ -321,12 +320,14 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         }
 
         const starterAiConfig = config.starterPrompts?.aiConfig
-        const qdrantConfig: QdrantConfig | undefined = config.starterPrompts?.qdrantConfig
+        const qdrantRaw = config.starterPrompts?.qdrantConfig || {}
+        const retrieveConfig: QdrantConfig | undefined = qdrantRaw.retrieve
+        const storeConfig: QdrantConfig | undefined = qdrantRaw.store
 
         // ----- Step 1: Try retrieving cached prompts from Qdrant -----
-        if (qdrantConfig?.retrieveEnabled && qdrantConfig.qdrantServerUrl && qdrantConfig.collectionName) {
+        if (retrieveConfig?.enabled && retrieveConfig.qdrantServerUrl && retrieveConfig.collectionName) {
             try {
-                const cached = await retrieveFromQdrant(qdrantConfig, overrideConfig, appServer)
+                const cached = await retrieveFromQdrant(retrieveConfig, overrideConfig, appServer)
                 if (cached) {
                     logger.info(`[StarterPrompts] Returned ${cached.questions.length} cached prompts from Qdrant`)
                     return cached
@@ -380,8 +381,8 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
 
         // ----- Step 3: Store to Qdrant (non-blocking) -----
         let qdrantIds: string[] | undefined
-        if (qdrantConfig?.storeEnabled && qdrantConfig.qdrantServerUrl && qdrantConfig.collectionName) {
-            qdrantIds = storeToQdrant(qdrantConfig, questions, overrideConfig, appServer)
+        if (storeConfig?.enabled && storeConfig.qdrantServerUrl && storeConfig.collectionName) {
+            qdrantIds = storeToQdrant(storeConfig, questions, overrideConfig, appServer)
         }
 
         return qdrantIds ? { questions, qdrantIds } : { questions }
