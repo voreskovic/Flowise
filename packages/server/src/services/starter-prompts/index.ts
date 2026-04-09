@@ -55,52 +55,49 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
             throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
         }
 
-        // We reuse the follow-up prompts LLM provider config so the user only
-        // configures credentials/model once. This is a deliberate design choice:
-        // starter prompts and follow-up prompts serve similar purposes (suggesting
-        // questions) and there's no reason to maintain separate LLM configurations.
-        if (!chatflow.followUpPrompts) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                'Follow-up Prompts must be configured with a provider before generating AI starter prompts'
-            )
+        // Read the AI config from chatbotConfig.starterPrompts.aiConfig
+        // This has its own provider/credential/model — independent from follow-up prompts.
+        if (!chatflow.chatbotConfig) {
+            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Chatbot config is not set')
         }
 
-        const followUpPromptsConfig: FollowUpPromptConfig = JSON.parse(chatflow.followUpPrompts)
-        if (!followUpPromptsConfig.selectedProvider) {
-            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'No LLM provider selected in Follow-up Prompts configuration')
+        let starterAiConfig: any
+        try {
+            const config = JSON.parse(chatflow.chatbotConfig)
+            starterAiConfig = config.starterPrompts?.aiConfig
+        } catch {
+            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Failed to parse chatbot config')
+        }
+
+        if (!starterAiConfig || !starterAiConfig.selectedProvider) {
+            throw new InternalFlowiseError(
+                StatusCodes.BAD_REQUEST,
+                'AI Starter Prompts must be configured with a provider before generating'
+            )
         }
 
         const context = buildContext(overrideConfig, chatflow.flowData, chatflow.name)
 
-        // Read the user's custom prompt template from chatbotConfig, or fall back to default.
-        // The user can customize this in the Starter Prompts config dialog.
+        // Read the prompt template from the provider config, or fall back to default.
+        const provider = starterAiConfig.selectedProvider
+        const providerConfig = starterAiConfig[provider] || {}
         let promptTemplate =
+            providerConfig.prompt ||
             'Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user\'s perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}'
 
-        if (chatflow.chatbotConfig) {
-            try {
-                const config = JSON.parse(chatflow.chatbotConfig)
-                if (config.starterPrompts?.aiConfig?.prompt) {
-                    promptTemplate = config.starterPrompts.aiConfig.prompt
-                }
-            } catch {
-                // use default prompt
-            }
-        }
+        // Build the FollowUpPromptConfig shape so we can reuse generateFollowUpPrompts.
+        // Force status=true and skipWhenExhausted=false since there's no conversation to exhaust.
+        const starterConfig: FollowUpPromptConfig = {
+            status: true,
+            selectedProvider: provider,
+            [provider]: {
+                ...providerConfig,
+                prompt: promptTemplate.replace('{context}', context)
+            },
+            skipWhenExhausted: false,
+            deduplicationEnabled: false
+        } as any
 
-        // Clone the follow-up config and replace the prompt with our starter-specific one.
-        // We don't mutate the original because it's still used for follow-up prompts at runtime.
-        const starterConfig: FollowUpPromptConfig = JSON.parse(JSON.stringify(followUpPromptsConfig))
-        const provider = starterConfig.selectedProvider
-        if (starterConfig[provider]) {
-            starterConfig[provider].prompt = promptTemplate.replace('{context}', context)
-        }
-
-        // Call generateFollowUpPrompts with empty history/sources/question.
-        // This works because the function just formats a prompt and calls the LLM —
-        // with our overridden prompt, the {history}/{question}/{sources} placeholders
-        // are irrelevant since we replaced the entire prompt template above.
         const result = await generateFollowUpPrompts(starterConfig, '', {
             chatId: '',
             chatflowid: chatflowId,
