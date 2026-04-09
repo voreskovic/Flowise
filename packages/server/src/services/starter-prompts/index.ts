@@ -92,6 +92,14 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         // Clone the follow-up config and replace the prompt with our starter-specific one.
         // We don't mutate the original because it's still used for follow-up prompts at runtime.
         const starterConfig: FollowUpPromptConfig = JSON.parse(JSON.stringify(followUpPromptsConfig))
+
+        // generateFollowUpPrompts checks config.status and returns early if false.
+        // We must force it true so starter generation runs even when follow-up prompts are disabled.
+        // Also disable skipWhenExhausted — with no source documents the exhaustion gate
+        // (unusedCount < 3) always triggers and short-circuits before reaching the LLM.
+        starterConfig.status = true
+        ;(starterConfig as any).skipWhenExhausted = false
+
         const provider = starterConfig.selectedProvider
         if (starterConfig[provider]) {
             starterConfig[provider].prompt = promptTemplate.replace('{context}', context)
