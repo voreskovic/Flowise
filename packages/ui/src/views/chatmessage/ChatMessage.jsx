@@ -225,6 +225,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
     const getChatflowConfig = useApi(chatflowsApi.getSpecificChatflow)
 
     const [starterPrompts, setStarterPrompts] = useState([])
+    const [isStarterPromptsLoading, setIsStarterPromptsLoading] = useState(false)
 
     // full file upload
     const [fullFileUpload, setFullFileUpload] = useState(false)
@@ -1438,13 +1439,49 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
             if (getChatflowConfig.data?.chatbotConfig && JSON.parse(getChatflowConfig.data?.chatbotConfig)) {
                 let config = JSON.parse(getChatflowConfig.data?.chatbotConfig)
                 if (config.starterPrompts) {
-                    let inputFields = []
-                    Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
-                        if (config.starterPrompts[key]) {
-                            inputFields.push(config.starterPrompts[key])
-                        }
-                    })
-                    setStarterPrompts(inputFields.filter((field) => field.prompt !== ''))
+                    // Check if AI generation is enabled
+                    if (config.starterPrompts.aiConfig?.status) {
+                        // AI mode: generate prompts dynamically
+                        setIsStarterPromptsLoading(true)
+                        chatflowsApi
+                            .generateStarterPrompts(chatflowid, { overrideConfig: {} })
+                            .then((resp) => {
+                                if (resp.data?.questions?.length > 0) {
+                                    setStarterPrompts(resp.data.questions.map((q) => ({ prompt: q })))
+                                } else {
+                                    // Fallback to manual prompts if AI returns nothing
+                                    let inputFields = []
+                                    Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
+                                        if (key !== 'aiConfig' && config.starterPrompts[key]) {
+                                            inputFields.push(config.starterPrompts[key])
+                                        }
+                                    })
+                                    setStarterPrompts(inputFields.filter((field) => field.prompt !== ''))
+                                }
+                            })
+                            .catch(() => {
+                                // On error, fall back to manual prompts
+                                let inputFields = []
+                                Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
+                                    if (key !== 'aiConfig' && config.starterPrompts[key]) {
+                                        inputFields.push(config.starterPrompts[key])
+                                    }
+                                })
+                                setStarterPrompts(inputFields.filter((field) => field.prompt !== ''))
+                            })
+                            .finally(() => {
+                                setIsStarterPromptsLoading(false)
+                            })
+                    } else {
+                        // Manual mode: use configured prompts
+                        let inputFields = []
+                        Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
+                            if (key !== 'aiConfig' && config.starterPrompts[key]) {
+                                inputFields.push(config.starterPrompts[key])
+                            }
+                        })
+                        setStarterPrompts(inputFields.filter((field) => field.prompt !== ''))
+                    }
                 }
                 if (config.chatFeedback) {
                     setChatFeedbackStatus(config.chatFeedback.status)
@@ -2922,7 +2959,13 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                 </div>
             </div>
 
-            {messages && messages.length === 1 && starterPrompts.length > 0 && (
+            {messages && messages.length === 1 && isStarterPromptsLoading && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                    <CircularProgress size={24} />
+                </Box>
+            )}
+
+            {messages && messages.length === 1 && !isStarterPromptsLoading && starterPrompts.length > 0 && (
                 <div style={{ position: 'relative' }}>
                     <StarterPromptsCard
                         sx={{ bottom: previews && previews.length > 0 ? 70 : 0 }}

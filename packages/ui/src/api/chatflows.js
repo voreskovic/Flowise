@@ -22,6 +22,8 @@ const getHasChatflowChanged = (id, lastUpdatedDateTime) => client.get(`/chatflow
 
 const generateAgentflow = (body) => client.post(`/agentflowv2-generator/generate`, body)
 
+const generateStarterPrompts = (chatflowId, body) => client.post(`/starter-prompts/${chatflowId}/generate`, body)
+
 export default {
     getAllChatflows,
     getAllAgentflows,
@@ -33,5 +35,6 @@ export default {
     getIsChatflowStreaming,
     getAllowChatflowUploads,
     getHasChatflowChanged,
-    generateAgentflow
+    generateAgentflow,
+    generateStarterPrompts
 }

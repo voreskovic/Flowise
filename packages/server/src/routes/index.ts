@@ -54,6 +54,7 @@ import nvidiaNimRouter from './nvidia-nim'
 import executionsRouter from './executions'
 import validationRouter from './validation'
 import agentflowv2GeneratorRouter from './agentflowv2-generator'
+import starterPromptsRouter from './starter-prompts'
 import textToSpeechRouter from './text-to-speech'
 
 import authRouter from '../enterprise/routes/auth'
@@ -123,6 +124,7 @@ router.use('/nvidia-nim', nvidiaNimRouter)
 router.use('/executions', executionsRouter)
 router.use('/validation', validationRouter)
 router.use('/agentflowv2-generator', agentflowv2GeneratorRouter)
+router.use('/starter-prompts', starterPromptsRouter)
 router.use('/text-to-speech', textToSpeechRouter)
 
 router.use('/auth', authRouter)
