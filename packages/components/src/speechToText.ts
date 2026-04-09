@@ -113,6 +113,7 @@ export const convertSpeechToText = async (upload: IFileUpload, speechToTextConfi
                     apiKey: credentialData.groqApiKey
                 })
                 const file = await toFile(audio_file, upload.name)
+                // @ts-ignore — groq-sdk types may not expose .audio depending on version
                 const groqTranscription = await groqClient.audio.transcriptions.create({
                     file,
                     model: speechToTextConfig?.model || 'whisper-large-v3',
