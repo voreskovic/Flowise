@@ -27,7 +27,7 @@ import { IconX } from '@tabler/icons-react'
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
 
 const promptDescription =
-    'Prompt to generate follow-up questions. Available variables: {history} (assistant response), {question} (user question), {sources} (retrieved source documents), {previousQuestions} (list of previously asked questions for deduplication).'
+    'Prompt to generate follow-up questions. Available variables: {history} (last assistant response), {question} (user question), {sources} (retrieved source documents), {previousQuestions} (all previously asked questions), {conversationHistory} (full Q&A conversation history).'
 const defaultPrompt =
     'Given the following conversation: {history}\nAll of the user questions so far: {previousQuestions}\nInformation about articles talked about: {sources}\n\nONLY generate follow-up questions if the assistant\'s last response contained actual retrieved news information.\nIf the assistant said it could not find information, output ONLY: NONE\n\nOtherwise generate exactly 3 follow-up questions:\n- CRITICAL: Write in the SAME LANGUAGE as the user\'s last message\n- CRITICAL: Never repeat or rephrase the user\'s last question\n- CRITICAL: Only use specific details (people, places, institutions, numbers) that were explicitly mentioned in the retrieved article\n- CRITICAL: Each question must be grammatically correct and naturally phrased in the target language\n- Each question must drill into a NEW unexplored detail of THAT specific story\n- NO questions that would work for any generic version of this topic\n- MAX 8 words per question\n- Output ONLY the 3 questions, one per line, nothing else\n\nBAD: User asked "Koji su glavni uzroci trovanja hranom u menzi?" → "Koji su glavni uzroci trovanja hranom?" (identical/rephrased)\nBAD: "Kako ovo utiče na lokalnu zajednicu?" (generic, no specific details)\nGOOD: "Koliko učenika je hospitalizovano u toj menzi?" (specific, deeper, uses story details)'
 
@@ -713,7 +713,7 @@ const FollowUpPrompts = ({ dialogProps }) => {
                                                 />
                                                 {inputParam.name === 'prompt' && (
                                                     <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
-                                                        {['{history}', '{question}', '{sources}', '{previousQuestions}'].map((variable) => (
+                                                        {['{history}', '{question}', '{sources}', '{previousQuestions}', '{conversationHistory}'].map((variable) => (
                                                             <Chip
                                                                 key={variable}
                                                                 label={variable}

@@ -421,6 +421,7 @@ export const generateFollowUpPrompts = async (
             .replace('{question}', question)
             .replace('{sources}', sources)
             .replace('{previousQuestions}', previousQuestionsText)
+            .replace('{conversationHistory}', chatHistory || 'No previous conversation.')
 
         // Call LLM provider and collect raw result
         let llmResult: FollowUpPromptResult | undefined
