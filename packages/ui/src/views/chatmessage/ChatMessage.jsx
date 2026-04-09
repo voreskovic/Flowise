@@ -1452,7 +1452,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                     // Fallback to manual prompts if AI returns nothing
                                     let inputFields = []
                                     Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
-                                        if (key !== 'aiConfig' && config.starterPrompts[key]) {
+                                        if (key !== 'aiConfig' && key !== 'qdrantConfig' && config.starterPrompts[key]) {
                                             inputFields.push(config.starterPrompts[key])
                                         }
                                     })
@@ -1463,7 +1463,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                 // On error, fall back to manual prompts
                                 let inputFields = []
                                 Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
-                                    if (key !== 'aiConfig' && config.starterPrompts[key]) {
+                                    if (key !== 'aiConfig' && key !== 'qdrantConfig' && config.starterPrompts[key]) {
                                         inputFields.push(config.starterPrompts[key])
                                     }
                                 })
@@ -1476,7 +1476,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         // Manual mode: use configured prompts
                         let inputFields = []
                         Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
-                            if (key !== 'aiConfig' && config.starterPrompts[key]) {
+                            if (key !== 'aiConfig' && key !== 'qdrantConfig' && config.starterPrompts[key]) {
                                 inputFields.push(config.starterPrompts[key])
                             }
                         })
