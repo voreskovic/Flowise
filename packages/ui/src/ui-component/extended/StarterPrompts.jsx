@@ -14,14 +14,16 @@ import {
     InputAdornment,
     Typography,
     Chip,
+    Checkbox,
     FormControl,
+    FormControlLabel,
     ListItem,
     ListItemAvatar,
     ListItemText,
     MenuItem,
     Select
 } from '@mui/material'
-import { IconX, IconTrash, IconPlus, IconBulb } from '@tabler/icons-react'
+import { IconX, IconTrash, IconPlus, IconBulb, IconDatabase } from '@tabler/icons-react'
 
 // Project import
 import { StyledButton } from '@/ui-component/button/StyledButton'
@@ -335,6 +337,20 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
     const [aiConfig, setAiConfig] = useState({})
     const [selectedProvider, setSelectedProvider] = useState('none')
 
+    // Qdrant config state
+    const [qdrantConfig, setQdrantConfig] = useState({
+        retrieveEnabled: false,
+        storeEnabled: false,
+        qdrantServerUrl: '',
+        qdrantCredentialId: '',
+        collectionName: '',
+        vectorDimension: 1536,
+        embeddingCredentialId: '',
+        embeddingModelName: '',
+        embeddingBasePath: '',
+        metadataFields: []
+    })
+
     const [chatbotConfig, setChatbotConfig] = useState({})
 
     const addInputField = () => {
@@ -377,6 +393,30 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
         return newVal
     }
 
+    // Qdrant config handlers
+    const handleQdrantChange = (key, value) => {
+        setQdrantConfig({ ...qdrantConfig, [key]: value })
+    }
+
+    const addMetadataField = () => {
+        setQdrantConfig({
+            ...qdrantConfig,
+            metadataFields: [...(qdrantConfig.metadataFields || []), { key: '', sourceVar: '', type: 'string', useAsFilter: true }]
+        })
+    }
+
+    const removeMetadataField = (index) => {
+        const fields = [...(qdrantConfig.metadataFields || [])]
+        fields.splice(index, 1)
+        setQdrantConfig({ ...qdrantConfig, metadataFields: fields })
+    }
+
+    const updateMetadataField = (index, fieldKey, value) => {
+        const fields = [...(qdrantConfig.metadataFields || [])]
+        fields[index] = { ...fields[index], [fieldKey]: value }
+        setQdrantConfig({ ...qdrantConfig, metadataFields: fields })
+    }
+
     const checkDisabled = () => {
         if (aiConfig && aiConfig.status) {
             if (selectedProvider === 'none') return true
@@ -414,6 +454,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
             }
 
             starterPrompts.aiConfig = aiConfig
+            starterPrompts.qdrantConfig = qdrantConfig
             chatbotConfig.starterPrompts = starterPrompts
 
             const saveResp = await chatflowsApi.updateChatflow(dialogProps.chatflow.id, {
@@ -463,7 +504,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                     // Load manual prompts
                     let fields = []
                     Object.getOwnPropertyNames(config.starterPrompts).forEach((key) => {
-                        if (key !== 'aiConfig' && config.starterPrompts[key]) {
+                        if (key !== 'aiConfig' && key !== 'qdrantConfig' && config.starterPrompts[key]) {
                             fields.push(config.starterPrompts[key])
                         }
                     })
@@ -474,6 +515,23 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                     if (config.starterPrompts.aiConfig) {
                         setAiConfig(config.starterPrompts.aiConfig)
                         setSelectedProvider(config.starterPrompts.aiConfig.selectedProvider || 'none')
+                    }
+
+                    // Load Qdrant config
+                    if (config.starterPrompts.qdrantConfig) {
+                        setQdrantConfig({
+                            retrieveEnabled: false,
+                            storeEnabled: false,
+                            qdrantServerUrl: '',
+                            qdrantCredentialId: '',
+                            collectionName: '',
+                            vectorDimension: 1536,
+                            embeddingCredentialId: '',
+                            embeddingModelName: '',
+                            embeddingBasePath: '',
+                            metadataFields: [],
+                            ...config.starterPrompts.qdrantConfig
+                        })
                     }
                 } else {
                     setInputFields([{ prompt: '' }])
@@ -676,6 +734,235 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                     </>
                 )}
             </Box>
+
+            {/* Qdrant Vector DB Sub-card */}
+            {aiConfig && aiConfig.status && (
+                <Box
+                    sx={{
+                        width: '100%',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 2,
+                        p: 2,
+                        mb: 2,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2
+                    }}
+                >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <IconDatabase size={20} />
+                        <Typography variant='h5'>Qdrant Vector DB</Typography>
+                    </Box>
+
+                    <SwitchInput
+                        label='Retrieve from Vector DB'
+                        onChange={(value) => handleQdrantChange('retrieveEnabled', value)}
+                        value={qdrantConfig.retrieveEnabled}
+                    />
+                    <SwitchInput
+                        label='Store to Vector DB'
+                        onChange={(value) => handleQdrantChange('storeEnabled', value)}
+                        value={qdrantConfig.storeEnabled}
+                    />
+
+                    {(qdrantConfig.retrieveEnabled || qdrantConfig.storeEnabled) && (
+                        <>
+                            {/* Connection */}
+                            <Typography variant='h5' sx={{ mt: 1 }}>Connection</Typography>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>
+                                    Qdrant Server URL <span style={{ color: 'red' }}>*</span>
+                                </Typography>
+                                <Input
+                                    inputParam={{
+                                        label: 'Qdrant Server URL',
+                                        name: 'qdrantServerUrl',
+                                        type: 'string',
+                                        placeholder: 'https://your-qdrant-instance.qdrant.io'
+                                    }}
+                                    onChange={(newValue) => handleQdrantChange('qdrantServerUrl', newValue)}
+                                    value={qdrantConfig.qdrantServerUrl || ''}
+                                />
+                            </Box>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>Qdrant API Key</Typography>
+                                <CredentialInputHandler
+                                    data={qdrantConfig.qdrantCredentialId ? { credential: qdrantConfig.qdrantCredentialId } : {}}
+                                    inputParam={{
+                                        label: 'Connect Credential',
+                                        name: 'credential',
+                                        type: 'credential',
+                                        credentialNames: ['qdrantApi']
+                                    }}
+                                    onSelect={(newValue) => handleQdrantChange('qdrantCredentialId', newValue)}
+                                />
+                            </Box>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>
+                                    Collection Name <span style={{ color: 'red' }}>*</span>
+                                </Typography>
+                                <Input
+                                    inputParam={{
+                                        label: 'Collection Name',
+                                        name: 'collectionName',
+                                        type: 'string',
+                                        placeholder: 'starter_prompts'
+                                    }}
+                                    onChange={(newValue) => handleQdrantChange('collectionName', newValue)}
+                                    value={qdrantConfig.collectionName || ''}
+                                />
+                            </Box>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>Vector Dimension</Typography>
+                                <Input
+                                    inputParam={{
+                                        label: 'Vector Dimension',
+                                        name: 'vectorDimension',
+                                        type: 'number',
+                                        default: 1536
+                                    }}
+                                    onChange={(newValue) => handleQdrantChange('vectorDimension', parseInt(newValue) || 1536)}
+                                    value={qdrantConfig.vectorDimension || 1536}
+                                />
+                            </Box>
+
+                            {/* OpenAI Embeddings */}
+                            <Typography variant='h5' sx={{ mt: 1 }}>OpenAI Embeddings</Typography>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>
+                                    Connect Credential <span style={{ color: 'red' }}>*</span>
+                                </Typography>
+                                <CredentialInputHandler
+                                    data={
+                                        qdrantConfig.embeddingCredentialId
+                                            ? { credential: qdrantConfig.embeddingCredentialId }
+                                            : {}
+                                    }
+                                    inputParam={{
+                                        label: 'Connect Credential',
+                                        name: 'credential',
+                                        type: 'credential',
+                                        credentialNames: ['openAIApi']
+                                    }}
+                                    onSelect={(newValue) => handleQdrantChange('embeddingCredentialId', newValue)}
+                                />
+                            </Box>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>Model Name</Typography>
+                                <Input
+                                    inputParam={{
+                                        label: 'Model Name',
+                                        name: 'embeddingModelName',
+                                        type: 'string',
+                                        placeholder: 'text-embedding-3-small',
+                                        optional: true
+                                    }}
+                                    onChange={(newValue) => handleQdrantChange('embeddingModelName', newValue)}
+                                    value={qdrantConfig.embeddingModelName || ''}
+                                />
+                            </Box>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>
+                                    Base Path
+                                    <TooltipWithParser
+                                        style={{ marginLeft: 10 }}
+                                        title='Optional custom base URL for the OpenAI API (e.g., for Azure-compatible endpoints)'
+                                    />
+                                </Typography>
+                                <Input
+                                    inputParam={{
+                                        label: 'Base Path',
+                                        name: 'embeddingBasePath',
+                                        type: 'string',
+                                        optional: true,
+                                        placeholder: 'https://api.example.com/v1'
+                                    }}
+                                    onChange={(newValue) => handleQdrantChange('embeddingBasePath', newValue)}
+                                    value={qdrantConfig.embeddingBasePath || ''}
+                                />
+                            </Box>
+
+                            {/* Metadata Fields */}
+                            <Typography variant='h5' sx={{ mt: 1 }}>Metadata Fields</Typography>
+                            <Typography variant='body2' sx={{ px: 2, color: 'text.secondary' }}>
+                                Define metadata to attach when storing prompts and to use as filters when retrieving.
+                                Source Var maps to <code>overrideConfig.vars.&lt;name&gt;</code> at runtime.
+                            </Typography>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                {(qdrantConfig.metadataFields || []).map((field, index) => (
+                                    <Box
+                                        key={index}
+                                        sx={{
+                                            display: 'flex',
+                                            gap: 1,
+                                            mb: 1,
+                                            alignItems: 'center',
+                                            flexWrap: 'wrap'
+                                        }}
+                                    >
+                                        <OutlinedInput
+                                            size='small'
+                                            placeholder='Key'
+                                            value={field.key}
+                                            onChange={(e) => updateMetadataField(index, 'key', e.target.value)}
+                                            sx={{ flex: 1, minWidth: 100 }}
+                                        />
+                                        <OutlinedInput
+                                            size='small'
+                                            placeholder='Source Var'
+                                            value={field.sourceVar}
+                                            onChange={(e) => updateMetadataField(index, 'sourceVar', e.target.value)}
+                                            sx={{ flex: 1, minWidth: 100 }}
+                                        />
+                                        <Select
+                                            size='small'
+                                            value={field.type || 'string'}
+                                            onChange={(e) => updateMetadataField(index, 'type', e.target.value)}
+                                            sx={{
+                                                minWidth: 90,
+                                                '& .MuiSvgIcon-root': {
+                                                    color: theme?.customization?.isDarkMode ? '#fff' : 'inherit'
+                                                }
+                                            }}
+                                        >
+                                            <MenuItem value='string'>string</MenuItem>
+                                            <MenuItem value='number'>number</MenuItem>
+                                            <MenuItem value='array'>array</MenuItem>
+                                        </Select>
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    size='small'
+                                                    checked={field.useAsFilter ?? true}
+                                                    onChange={(e) => updateMetadataField(index, 'useAsFilter', e.target.checked)}
+                                                />
+                                            }
+                                            label='Filter'
+                                            sx={{ mr: 0 }}
+                                        />
+                                        <IconButton
+                                            size='small'
+                                            color='error'
+                                            onClick={() => removeMetadataField(index)}
+                                        >
+                                            <IconTrash size={16} />
+                                        </IconButton>
+                                    </Box>
+                                ))}
+                                <Button
+                                    size='small'
+                                    startIcon={<IconPlus size={14} />}
+                                    onClick={addMetadataField}
+                                    sx={{ mt: 0.5 }}
+                                >
+                                    Add Field
+                                </Button>
+                            </Box>
+                        </>
+                    )}
+                </Box>
+            )}
 
             {/* Manual / Fallback Prompts */}
             {aiConfig.status && (
