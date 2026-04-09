@@ -169,6 +169,21 @@ function buildMetadataPayload(metadataFields: MetadataField[], vars: Record<stri
     return metadata
 }
 
+/**
+ * Extract article IDs from the mobile app's qdrantFilter.
+ * The mobile app sends: { must: [{ has_id: [479264, 479246, ...] }] }
+ */
+function extractArticleIds(overrideConfig: Record<string, any>): (string | number)[] {
+    const qdrantFilter = overrideConfig.qdrantFilter
+    if (!qdrantFilter?.must || !Array.isArray(qdrantFilter.must)) return []
+    for (const clause of qdrantFilter.must) {
+        if (clause.has_id && Array.isArray(clause.has_id)) {
+            return clause.has_id
+        }
+    }
+    return []
+}
+
 // ---------------------------------------------------------------------------
 // Qdrant Retrieve
 // ---------------------------------------------------------------------------
@@ -179,8 +194,19 @@ async function retrieveFromQdrant(
     appServer: any
 ): Promise<{ questions: string[]; qdrantIds: string[] } | null> {
     const vars = overrideConfig.vars || {}
-    const filter = buildQdrantFilter(qdrantConfig.metadataFields || [], vars)
-    if (!filter) return null // no filter criteria → can't retrieve meaningfully
+    const metadataFilter = buildQdrantFilter(qdrantConfig.metadataFields || [], vars)
+    const articleIds = extractArticleIds(overrideConfig)
+
+    // Build combined filter: metadata conditions + article_ids match
+    const must: any[] = metadataFilter?.must || []
+    if (articleIds.length > 0) {
+        // Find stored prompts whose article_ids overlap with the request's article IDs
+        must.push({ key: 'metadata.article_ids', match: { any: articleIds.map(String) } })
+    }
+
+    if (must.length === 0) return null // no filter criteria → can't retrieve meaningfully
+
+    const filter = { must }
 
     const embeddings = await createEmbeddingInstance(qdrantConfig, appServer)
     const client = await createQdrantClient(qdrantConfig, appServer)
@@ -241,6 +267,12 @@ function storeToQdrant(
             const vectors = await embeddings.embedDocuments(questions)
             const vars = overrideConfig.vars || {}
             const metadata = buildMetadataPayload(qdrantConfig.metadataFields || [], vars)
+
+            // Attach article IDs from qdrantFilter so they're searchable on retrieve
+            const articleIds = extractArticleIds(overrideConfig)
+            if (articleIds.length > 0) {
+                metadata.article_ids = articleIds.map(String)
+            }
 
             const points = questions.map((question: string, idx: number) => ({
                 id: ids[idx],
