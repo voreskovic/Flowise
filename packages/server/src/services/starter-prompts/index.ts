@@ -2,7 +2,7 @@ import { StatusCodes } from 'http-status-codes'
 import { InternalFlowiseError } from '../../errors/internalFlowiseError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
-import { databaseEntities } from '../../utils'
+import { databaseEntities, CURRENT_DATE_TIME_VAR_PREFIX } from '../../utils'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { generateFollowUpPrompts, FollowUpPromptConfig, ICommonObject } from 'flowise-components'
 import { QdrantClient } from '@qdrant/js-client-rest'
@@ -265,7 +265,7 @@ function storeToQdrant(
             await ensureCollection(client, qdrantConfig.collectionName, qdrantConfig.vectorDimension || 1536)
 
             const vectors = await embeddings.embedDocuments(questions)
-            const vars = overrideConfig.vars || {}
+            const vars = { ...(overrideConfig.vars || {}), [CURRENT_DATE_TIME_VAR_PREFIX]: new Date().toISOString() }
             const metadata = buildMetadataPayload(qdrantConfig.metadataFields || [], vars)
 
             // Attach article IDs from qdrantFilter so they're searchable on retrieve
