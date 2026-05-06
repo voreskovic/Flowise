@@ -364,6 +364,34 @@ const QdrantSection = ({ title, description, state, handlers, theme, allowMetada
                 </Box>
             )}
 
+            {state.enabled && allowMetadataOnly && (
+                <Box sx={{ pl: 0 }}>
+                    <Typography>Max articles to fetch (k)</Typography>
+                    <Input
+                        inputParam={{
+                            label: 'Max articles to fetch (k)',
+                            name: 'maxArticles',
+                            type: 'number',
+                            optional: true,
+                            placeholder: 'e.g. 8 — leave empty for no cap'
+                        }}
+                        onChange={(newValue) => {
+                            if (newValue === '' || newValue === null || newValue === undefined) {
+                                handleChange('maxArticles', '')
+                            } else {
+                                const parsed = parseInt(newValue)
+                                handleChange('maxArticles', Number.isNaN(parsed) ? '' : parsed)
+                            }
+                        }}
+                        value={state.maxArticles ?? ''}
+                    />
+                    <Typography variant='body2' sx={{ color: 'text.secondary', mt: 0.5 }}>
+                        Caps how many IDs from <code>qdrantFilter.must[].has_id</code> are fetched. Takes the first k in client order; if
+                        fewer are sent, all are used. Empty / 0 = no cap.
+                    </Typography>
+                </Box>
+            )}
+
             {state.enabled && (
                 <>
                     {/* Connection */}
@@ -577,6 +605,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
     const defaultQdrantSection = {
         enabled: false,
         metadataOnly: false,
+        maxArticles: '',
         qdrantServerUrl: '',
         qdrantCredentialId: '',
         collectionName: '',
