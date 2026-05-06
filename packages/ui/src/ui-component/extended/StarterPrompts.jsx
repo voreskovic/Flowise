@@ -321,7 +321,7 @@ const starterPromptsOptions = {
     }
 }
 
-const QdrantSection = ({ title, description, state, handlers, theme }) => {
+const QdrantSection = ({ title, description, state, handlers, theme, allowMetadataOnly }) => {
     const { handleChange, addMetadataField, removeMetadataField, updateMetadataField } = handlers
 
     return (
@@ -349,6 +349,20 @@ const QdrantSection = ({ title, description, state, handlers, theme }) => {
             )}
 
             <SwitchInput label={`Enable ${title}`} onChange={(value) => handleChange('enabled', value)} value={state.enabled} />
+
+            {state.enabled && allowMetadataOnly && (
+                <Box sx={{ pl: 0 }}>
+                    <SwitchInput
+                        label='Metadata-only lookup (skip vector similarity)'
+                        onChange={(value) => handleChange('metadataOnly', value)}
+                        value={!!state.metadataOnly}
+                    />
+                    <Typography variant='body2' sx={{ color: 'text.secondary', mt: -1 }}>
+                        When on, retrieve uses only the metadata filter below (no embedding call). Returns the first matching points
+                        as cached starter prompts; if none match, falls through to LLM generation.
+                    </Typography>
+                </Box>
+            )}
 
             {state.enabled && (
                 <>
@@ -413,59 +427,63 @@ const QdrantSection = ({ title, description, state, handlers, theme }) => {
                         />
                     </Box>
 
-                    {/* OpenAI Embeddings */}
-                    <Typography variant='h5' sx={{ mt: 1 }}>
-                        OpenAI Embeddings
-                    </Typography>
-                    <Box sx={{ px: 2, width: '100%' }}>
-                        <Typography>
-                            Connect Credential <span style={{ color: 'red' }}>*</span>
-                        </Typography>
-                        <CredentialInputHandler
-                            data={state.embeddingCredentialId ? { credential: state.embeddingCredentialId } : {}}
-                            inputParam={{
-                                label: 'Connect Credential',
-                                name: 'credential',
-                                type: 'credential',
-                                credentialNames: ['openAIApi']
-                            }}
-                            onSelect={(newValue) => handleChange('embeddingCredentialId', newValue)}
-                        />
-                    </Box>
-                    <Box sx={{ px: 2, width: '100%' }}>
-                        <Typography>Model Name</Typography>
-                        <Input
-                            inputParam={{
-                                label: 'Model Name',
-                                name: 'embeddingModelName',
-                                type: 'string',
-                                placeholder: 'text-embedding-3-small',
-                                optional: true
-                            }}
-                            onChange={(newValue) => handleChange('embeddingModelName', newValue)}
-                            value={state.embeddingModelName || ''}
-                        />
-                    </Box>
-                    <Box sx={{ px: 2, width: '100%' }}>
-                        <Typography>
-                            Base Path
-                            <TooltipWithParser
-                                style={{ marginLeft: 10 }}
-                                title='Optional custom base URL for the OpenAI API (e.g., for Azure-compatible endpoints)'
-                            />
-                        </Typography>
-                        <Input
-                            inputParam={{
-                                label: 'Base Path',
-                                name: 'embeddingBasePath',
-                                type: 'string',
-                                optional: true,
-                                placeholder: 'https://api.example.com/v1'
-                            }}
-                            onChange={(newValue) => handleChange('embeddingBasePath', newValue)}
-                            value={state.embeddingBasePath || ''}
-                        />
-                    </Box>
+                    {/* OpenAI Embeddings — only used by the vector-similarity path */}
+                    {!state.metadataOnly && (
+                        <>
+                            <Typography variant='h5' sx={{ mt: 1 }}>
+                                OpenAI Embeddings
+                            </Typography>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>
+                                    Connect Credential <span style={{ color: 'red' }}>*</span>
+                                </Typography>
+                                <CredentialInputHandler
+                                    data={state.embeddingCredentialId ? { credential: state.embeddingCredentialId } : {}}
+                                    inputParam={{
+                                        label: 'Connect Credential',
+                                        name: 'credential',
+                                        type: 'credential',
+                                        credentialNames: ['openAIApi']
+                                    }}
+                                    onSelect={(newValue) => handleChange('embeddingCredentialId', newValue)}
+                                />
+                            </Box>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>Model Name</Typography>
+                                <Input
+                                    inputParam={{
+                                        label: 'Model Name',
+                                        name: 'embeddingModelName',
+                                        type: 'string',
+                                        placeholder: 'text-embedding-3-small',
+                                        optional: true
+                                    }}
+                                    onChange={(newValue) => handleChange('embeddingModelName', newValue)}
+                                    value={state.embeddingModelName || ''}
+                                />
+                            </Box>
+                            <Box sx={{ px: 2, width: '100%' }}>
+                                <Typography>
+                                    Base Path
+                                    <TooltipWithParser
+                                        style={{ marginLeft: 10 }}
+                                        title='Optional custom base URL for the OpenAI API (e.g., for Azure-compatible endpoints)'
+                                    />
+                                </Typography>
+                                <Input
+                                    inputParam={{
+                                        label: 'Base Path',
+                                        name: 'embeddingBasePath',
+                                        type: 'string',
+                                        optional: true,
+                                        placeholder: 'https://api.example.com/v1'
+                                    }}
+                                    onChange={(newValue) => handleChange('embeddingBasePath', newValue)}
+                                    value={state.embeddingBasePath || ''}
+                                />
+                            </Box>
+                        </>
+                    )}
 
                     {/* Metadata Fields */}
                     <Typography variant='h5' sx={{ mt: 1 }}>
@@ -535,7 +553,8 @@ QdrantSection.propTypes = {
     description: PropTypes.string,
     state: PropTypes.object,
     handlers: PropTypes.object,
-    theme: PropTypes.object
+    theme: PropTypes.object,
+    allowMetadataOnly: PropTypes.bool
 }
 
 const StarterPrompts = ({ dialogProps, onConfirm }) => {
@@ -557,6 +576,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
     // Qdrant config state — separate for retrieve and store
     const defaultQdrantSection = {
         enabled: false,
+        metadataOnly: false,
         qdrantServerUrl: '',
         qdrantCredentialId: '',
         collectionName: '',
@@ -950,6 +970,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                     state={qdrantRetrieve}
                     handlers={makeQdrantHandlers(qdrantRetrieve, setQdrantRetrieve)}
                     theme={theme}
+                    allowMetadataOnly
                 />
             )}
 
