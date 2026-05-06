@@ -388,13 +388,34 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         const retrieveConfig: QdrantConfig | undefined = qdrantRaw.retrieve
         const storeConfig: QdrantConfig | undefined = qdrantRaw.store
 
-        // ----- Step 1: Try retrieving cached prompts from Qdrant -----
+        // The prompt template is needed up front so we can decide whether to use Retrieve as
+        // a cache shortcut or as a RAG inspiration source for the LLM.
+        const provider = starterAiConfig?.selectedProvider
+        const providerConfig = (provider && starterAiConfig?.[provider]) || {}
+        const promptTemplate: string =
+            providerConfig.prompt ||
+            'Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user\'s perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}'
+        const usesRetrievedVar = promptTemplate.includes('{retrieved_from_vector_db}')
+
+        // ----- Step 1: Try retrieving from Qdrant -----
+        // If the prompt template references {retrieved_from_vector_db}, we treat retrieve as a
+        // RAG inspiration source: capture the content for substitution and continue to the LLM.
+        // Otherwise the original cache-shortcut behaviour applies — return cached prompts and
+        // skip the LLM entirely on a hit.
+        let retrievedContent = ''
         if (retrieveConfig?.enabled && retrieveConfig.qdrantServerUrl && retrieveConfig.collectionName) {
             try {
                 const cached = await retrieveFromQdrant(retrieveConfig, overrideConfig, appServer)
                 if (cached) {
-                    logger.info(`[StarterPrompts] Returned ${cached.questions.length} cached prompts from Qdrant`)
-                    return cached
+                    if (usesRetrievedVar) {
+                        retrievedContent = cached.questions.join('\n')
+                        logger.info(
+                            `[StarterPrompts] RAG mode: feeding ${cached.questions.length} retrieved items into LLM via {retrieved_from_vector_db}`
+                        )
+                    } else {
+                        logger.info(`[StarterPrompts] Returned ${cached.questions.length} cached prompts from Qdrant`)
+                        return cached
+                    }
                 }
             } catch (err) {
                 logger.warn(`[StarterPrompts] Qdrant retrieve failed, falling back to LLM: ${getErrorMessage(err)}`)
@@ -402,7 +423,7 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         }
 
         // ----- Step 2: Generate via LLM -----
-        if (!starterAiConfig || !starterAiConfig.selectedProvider) {
+        if (!starterAiConfig || !provider) {
             throw new InternalFlowiseError(
                 StatusCodes.BAD_REQUEST,
                 'AI Starter Prompts must be configured with a provider before generating'
@@ -410,18 +431,14 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         }
 
         const context = buildContext(overrideConfig, chatflow.flowData, chatflow.name)
-        const provider = starterAiConfig.selectedProvider
-        const providerConfig = starterAiConfig[provider] || {}
-        let promptTemplate =
-            providerConfig.prompt ||
-            'Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user\'s perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}'
+        const finalPrompt = promptTemplate.replace('{context}', context).replace('{retrieved_from_vector_db}', retrievedContent)
 
         const starterConfig: FollowUpPromptConfig = {
             status: true,
             selectedProvider: provider,
             [provider]: {
                 ...providerConfig,
-                prompt: promptTemplate.replace('{context}', context)
+                prompt: finalPrompt
             },
             skipWhenExhausted: false,
             deduplicationEnabled: false
