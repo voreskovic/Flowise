@@ -22,6 +22,7 @@ interface MetadataField {
 
 interface QdrantConfig {
     enabled: boolean
+    metadataOnly?: boolean
     qdrantServerUrl: string
     qdrantCredentialId: string
     collectionName: string
@@ -195,12 +196,43 @@ async function retrieveFromQdrant(
 ): Promise<{ questions: string[]; qdrantIds: string[] } | null> {
     const vars = overrideConfig.vars || {}
     const metadataFilter = buildQdrantFilter(qdrantConfig.metadataFields || [], vars)
-    const articleIds = extractArticleIds(overrideConfig)
 
-    // Build combined filter: metadata conditions + article_ids match
+    // Metadata-only path: exact-match cache lookup, no embedding, no similarity ranking.
+    // We deliberately skip the article_ids overlap clause here — articles in a cluster can
+    // change, but the cache key (e.g. cluster_id) should be stable, so adding article_ids
+    // to the filter would force regeneration on every article change.
+    if (qdrantConfig.metadataOnly) {
+        if (!metadataFilter) return null
+
+        const client = await createQdrantClient(qdrantConfig, appServer)
+        const results = await client.scroll(qdrantConfig.collectionName, {
+            filter: metadataFilter,
+            limit: 4,
+            with_payload: true,
+            with_vector: false
+        })
+
+        const points = (results as any).points || []
+        if (!points || points.length === 0) return null
+
+        const questions: string[] = []
+        const qdrantIds: string[] = []
+        for (const point of points) {
+            const content = point.payload?.content
+            if (content && typeof content === 'string') {
+                questions.push(content)
+                qdrantIds.push(String(point.id))
+            }
+        }
+
+        return questions.length > 0 ? { questions, qdrantIds } : null
+    }
+
+    // Vector-similarity path (original behaviour): metadata filter + article_ids overlap +
+    // similarity rank against the request's story_content.
+    const articleIds = extractArticleIds(overrideConfig)
     const must: any[] = metadataFilter?.must || []
     if (articleIds.length > 0) {
-        // Find stored prompts whose article_ids overlap with the request's article IDs
         must.push({ key: 'metadata.article_ids', match: { any: articleIds.map(String) } })
     }
 
