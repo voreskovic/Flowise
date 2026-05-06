@@ -23,6 +23,7 @@ interface MetadataField {
 interface QdrantConfig {
     enabled: boolean
     metadataOnly?: boolean
+    maxArticles?: number
     qdrantServerUrl: string
     qdrantCredentialId: string
     collectionName: string
@@ -432,13 +433,18 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         let retrievedContent = ''
         if (retrieveConfig?.enabled && retrieveConfig.qdrantServerUrl && retrieveConfig.collectionName) {
             if (usesRetrievedVar) {
-                const articleIds = extractArticleIds(overrideConfig)
+                const allArticleIds = extractArticleIds(overrideConfig)
+                // Cap to first k IDs (in client-supplied order) when maxArticles is a positive number.
+                // Empty / 0 / undefined → no cap.
+                const k = retrieveConfig.maxArticles
+                const articleIds = typeof k === 'number' && k > 0 ? allArticleIds.slice(0, k) : allArticleIds
                 if (articleIds.length > 0) {
                     try {
                         const texts = await retrieveArticleTextsByIds(retrieveConfig, articleIds, appServer)
                         retrievedContent = texts.join('\n\n')
+                        const capNote = articleIds.length < allArticleIds.length ? ` (capped from ${allArticleIds.length} by k=${k})` : ''
                         logger.info(
-                            `[StarterPrompts] RAG mode: fetched ${texts.length}/${articleIds.length} article texts by ID for {retrieved_from_vector_db}`
+                            `[StarterPrompts] RAG mode: fetched ${texts.length}/${articleIds.length} article texts by ID for {retrieved_from_vector_db}${capNote}`
                         )
                     } catch (err) {
                         logger.warn(`[StarterPrompts] Article-by-ID retrieve failed: ${getErrorMessage(err)}`)
