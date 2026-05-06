@@ -185,6 +185,31 @@ function extractArticleIds(overrideConfig: Record<string, any>): (string | numbe
     return []
 }
 
+/**
+ * Direct ID lookup against the Retrieve collection: pull each article's stored text by its
+ * Qdrant point ID. No similarity, no embedding, no metadata filter — just `client.retrieve`.
+ * Used to feed article content into the LLM via the {retrieved_from_vector_db} prompt variable.
+ *
+ * Tries common payload field names so this works against collections built by Flowise document
+ * loaders (`pageContent`), LangChain Python (`page_content`), or hand-rolled (`content`/`text`).
+ */
+async function retrieveArticleTextsByIds(qdrantConfig: QdrantConfig, articleIds: (string | number)[], appServer: any): Promise<string[]> {
+    if (articleIds.length === 0) return []
+    const client = await createQdrantClient(qdrantConfig, appServer)
+    const points = (await client.retrieve(qdrantConfig.collectionName, {
+        ids: articleIds as any,
+        with_payload: true,
+        with_vector: false
+    })) as any[]
+    const texts: string[] = []
+    for (const point of points || []) {
+        const payload = point?.payload || {}
+        const text = payload.content ?? payload.pageContent ?? payload.page_content ?? payload.text
+        if (typeof text === 'string' && text.trim()) texts.push(text)
+    }
+    return texts
+}
+
 // ---------------------------------------------------------------------------
 // Qdrant Retrieve
 // ---------------------------------------------------------------------------
@@ -398,27 +423,39 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         const usesRetrievedVar = promptTemplate.includes('{retrieved_from_vector_db}')
 
         // ----- Step 1: Try retrieving from Qdrant -----
-        // If the prompt template references {retrieved_from_vector_db}, we treat retrieve as a
-        // RAG inspiration source: capture the content for substitution and continue to the LLM.
-        // Otherwise the original cache-shortcut behaviour applies — return cached prompts and
-        // skip the LLM entirely on a hit.
+        // Two distinct modes, selected by whether the prompt template references the variable:
+        //   • Variable in prompt → RAG mode: fetch article texts directly by ID from
+        //     `overrideConfig.qdrantFilter.must[].has_id`, inject as {retrieved_from_vector_db},
+        //     always proceed to the LLM. No cache shortcut.
+        //   • Variable not in prompt → cache mode: existing similarity / metadata-only retrieve;
+        //     on a hit, return the cached prompts and skip the LLM entirely.
         let retrievedContent = ''
         if (retrieveConfig?.enabled && retrieveConfig.qdrantServerUrl && retrieveConfig.collectionName) {
-            try {
-                const cached = await retrieveFromQdrant(retrieveConfig, overrideConfig, appServer)
-                if (cached) {
-                    if (usesRetrievedVar) {
-                        retrievedContent = cached.questions.join('\n')
+            if (usesRetrievedVar) {
+                const articleIds = extractArticleIds(overrideConfig)
+                if (articleIds.length > 0) {
+                    try {
+                        const texts = await retrieveArticleTextsByIds(retrieveConfig, articleIds, appServer)
+                        retrievedContent = texts.join('\n\n')
                         logger.info(
-                            `[StarterPrompts] RAG mode: feeding ${cached.questions.length} retrieved items into LLM via {retrieved_from_vector_db}`
+                            `[StarterPrompts] RAG mode: fetched ${texts.length}/${articleIds.length} article texts by ID for {retrieved_from_vector_db}`
                         )
-                    } else {
+                    } catch (err) {
+                        logger.warn(`[StarterPrompts] Article-by-ID retrieve failed: ${getErrorMessage(err)}`)
+                    }
+                } else {
+                    logger.info('[StarterPrompts] RAG mode: no article IDs in qdrantFilter.must[].has_id — variable will be empty')
+                }
+            } else {
+                try {
+                    const cached = await retrieveFromQdrant(retrieveConfig, overrideConfig, appServer)
+                    if (cached) {
                         logger.info(`[StarterPrompts] Returned ${cached.questions.length} cached prompts from Qdrant`)
                         return cached
                     }
+                } catch (err) {
+                    logger.warn(`[StarterPrompts] Qdrant retrieve failed, falling back to LLM: ${getErrorMessage(err)}`)
                 }
-            } catch (err) {
-                logger.warn(`[StarterPrompts] Qdrant retrieve failed, falling back to LLM: ${getErrorMessage(err)}`)
             }
         }
 
