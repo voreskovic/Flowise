@@ -106,14 +106,21 @@ interface UnusedContentResult {
 
 /**
  * Extract sentences from source documents that were NOT already covered in the conversation.
- * Compares each sentence against the full chat history using word overlap.
- * Returns unused content text, plus sentence counts for the exhaustion gate.
+ * Uses character n-gram overlap (same algorithm as the exhaustion gate
+ * countUnusedSentencesNgram) so the two filters agree on what "covered" means.
+ * Word overlap mishandles morphologically rich languages (Croatian/Serbian/etc.):
+ * "Tajvan" vs "Tajvana" read as different words but share their trigrams.
+ *
+ * Note: with n-grams, overlapThreshold is a *trigram* ratio, not a word ratio.
+ * Trigrams produce denser matches than words, so the same numeric threshold is
+ * stricter than the word-based version was. The minWordLength parameter is kept
+ * in the signature for caller compatibility but no longer used.
  */
 function extractUnusedContent(
     rawSourceDocuments: string,
     conversationText: string,
     overlapThreshold: number = 0.5,
-    minWordLength: number = 3,
+    _minWordLength: number = 3,
     maxChars: number = 1000
 ): UnusedContentResult {
     const empty: UnusedContentResult = { text: '', unusedCount: 0, totalCount: 0 }
@@ -126,7 +133,7 @@ function extractUnusedContent(
     }
     if (!Array.isArray(docs) || docs.length === 0) return empty
 
-    const conversationWords = new Set(normalize(conversationText, minWordLength))
+    const conversationNgrams = extractNgrams(conversationText)
 
     let totalCount = 0
     const unusedSentences: string[] = []
@@ -136,10 +143,13 @@ function extractUnusedContent(
         totalCount += sentences.length
 
         for (const sentence of sentences) {
-            const words = normalize(sentence, minWordLength)
-            if (words.length === 0) continue
-            const overlapCount = words.filter((w: string) => conversationWords.has(w)).length
-            const overlapRatio = overlapCount / words.length
+            const sentenceNgrams = extractNgrams(sentence)
+            if (sentenceNgrams.size === 0) continue
+            let overlapCount = 0
+            for (const ng of sentenceNgrams) {
+                if (conversationNgrams.has(ng)) overlapCount++
+            }
+            const overlapRatio = overlapCount / sentenceNgrams.size
             if (overlapRatio < overlapThreshold) {
                 unusedSentences.push(sentence.trim())
             }
@@ -416,12 +426,23 @@ export const generateFollowUpPrompts = async (
 
         const previousQuestionsText = previousQuestions.length > 0 ? previousQuestions.map((q) => '- ' + q).join('\n') : 'None yet.'
 
-        const followUpPromptsPrompt = providerConfig.prompt
-            .replace('{history}', apiMessageContent)
-            .replace('{question}', question)
-            .replace('{sources}', sources)
-            .replace('{previousQuestions}', previousQuestionsText)
-            .replace('{conversationHistory}', chatHistory || 'No previous conversation.')
+        // Atomic single-pass substitution. Chained .replace(string, ...) calls only
+        // replace the FIRST occurrence — so if a placeholder appears twice in the
+        // template (e.g. {question} used for both language detection and exploration
+        // direction), only one slot got filled. The callback form also stops "$&",
+        // "$'", "$`" in substituted values from being treated as special replacement
+        // patterns when a value happens to contain "$".
+        const substitutions: Record<string, string> = {
+            history: apiMessageContent,
+            question: question,
+            sources: sources,
+            previousQuestions: previousQuestionsText,
+            conversationHistory: chatHistory || 'No previous conversation.'
+        }
+        const followUpPromptsPrompt = providerConfig.prompt.replace(
+            /\{(history|question|sources|previousQuestions|conversationHistory)\}/g,
+            (match: string, key: string) => (key in substitutions ? substitutions[key] : match)
+        )
 
         // Call LLM provider and collect raw result
         let llmResult: FollowUpPromptResult | undefined
