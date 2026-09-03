@@ -48,7 +48,7 @@ import ollamaIcon from '@/assets/images/ollama.svg'
 import useNotifier from '@/utils/useNotifier'
 
 const starterPromptDescription =
-    'Prompt to generate starter questions. Available variables: {context} (chatflow context including system messages and topic content). When "Retrieve from Vector DB" is enabled, also: {retrieved_from_vector_db} — fetches article texts by ID from overrideConfig.qdrantFilter.must[].has_id and feeds them to the LLM. Including this variable disables the cache shortcut.'
+    'Prompt to generate starter questions. Available variables: {context} (chatflow context including system messages and topic content). When "Retrieve from Vector DB" is enabled, also: {retrieved_from_vector_db} — fetches article texts by ID from overrideConfig.qdrantFilter.must[].has_id and feeds them to the LLM. Including this variable disables the cache shortcut. Flowise Variables enabled for override in this chatflow are available as {{$vars.name}}, e.g. {{$vars.language}}, exactly as in the flow\'s own prompts.'
 const defaultPrompt =
     "Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user's perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}"
 

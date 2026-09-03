@@ -2,8 +2,10 @@ import { StatusCodes } from 'http-status-codes'
 import { InternalFlowiseError } from '../../errors/internalFlowiseError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
-import { databaseEntities, CURRENT_DATE_TIME_VAR_PREFIX } from '../../utils'
+import { databaseEntities, CURRENT_DATE_TIME_VAR_PREFIX, getAPIOverrideConfig, getGlobalVariable } from '../../utils'
 import { ChatFlow } from '../../database/entities/ChatFlow'
+import { Variable } from '../../database/entities/Variable'
+import { getWorkspaceSearchOptions } from '../../enterprise/utils/ControllerServiceUtils'
 import { generateFollowUpPrompts, FollowUpPromptConfig, ICommonObject } from 'flowise-components'
 import { QdrantClient } from '@qdrant/js-client-rest'
 import { v4 as uuidv4 } from 'uuid'
@@ -470,6 +472,14 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         const context = buildContext(overrideConfig, chatflow.flowData, chatflow.name)
         const finalPrompt = promptTemplate.replace('{context}', context).replace('{retrieved_from_vector_db}', retrievedContent)
 
+        // {{$vars.name}} in the prompt: same Variables, allowlist and defaults as the chatflow's own node inputs.
+        // Raw overrideConfig.vars is still what {context} and the Qdrant metadata mapping read above.
+        const availableVariables = await appServer.AppDataSource.getRepository(Variable).findBy(
+            getWorkspaceSearchOptions(chatflow.workspaceId)
+        )
+        const { variableOverrides } = getAPIOverrideConfig(chatflow)
+        const vars = await getGlobalVariable(overrideConfig, availableVariables, variableOverrides)
+
         const starterConfig: FollowUpPromptConfig = {
             status: true,
             selectedProvider: provider,
@@ -489,7 +499,8 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
             question: '',
             sourceDocuments: '',
             chatHistory: '',
-            analytic: chatflow.analytic || ''
+            analytic: chatflow.analytic || '',
+            vars
         })
 
         const questions = result?.questions || []

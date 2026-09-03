@@ -328,6 +328,28 @@ function deduplicateWithinCandidates(candidates: string[], threshold: number = 0
     return result
 }
 
+const hasOwn = (obj: object, key: string): boolean => Object.prototype.hasOwnProperty.call(obj, key)
+
+/**
+ * Fill a prompt template. Two kinds of placeholders:
+ * - `{name}`         built-ins supplied by the generator (history, question, sources, ...)
+ * - `{{$vars.name}}` Flowise Variables: same syntax and same override allowlist as the flow's own
+ *                    node inputs. The caller resolves them with the server's getGlobalVariable and
+ *                    passes the map in, so a Variable's static value is the default and the client's
+ *                    overrideConfig.vars value wins when that Variable is enabled for override.
+ * Unknown names are left untouched, as core does. Variables are filled first so end-user text
+ * inserted by the built-ins is never re-scanned. Each pass is one global regex with a callback:
+ * chained string .replace() only fills the first occurrence and treats "$&", "$'" and "$`" inside
+ * a value as replacement patterns.
+ */
+export function fillPromptTemplate(template: string, builtIns: Record<string, string>, vars: Record<string, unknown> = {}): string {
+    return template
+        .replace(/\{\{\$vars\.(\w+)\}\}/g, (match: string, name: string) =>
+            hasOwn(vars, name) && vars[name] != null ? String(vars[name]) : match
+        )
+        .replace(/\{(\w+)\}/g, (match: string, key: string) => (hasOwn(builtIns, key) ? builtIns[key] : match))
+}
+
 /**
  * Build LangChain callbacks for tracing follow-up prompt generation.
  * Creates a separate Langfuse trace grouped under the same session (chatId).
@@ -426,12 +448,6 @@ export const generateFollowUpPrompts = async (
 
         const previousQuestionsText = previousQuestions.length > 0 ? previousQuestions.map((q) => '- ' + q).join('\n') : 'None yet.'
 
-        // Atomic single-pass substitution. Chained .replace(string, ...) calls only
-        // replace the FIRST occurrence — so if a placeholder appears twice in the
-        // template (e.g. {question} used for both language detection and exploration
-        // direction), only one slot got filled. The callback form also stops "$&",
-        // "$'", "$`" in substituted values from being treated as special replacement
-        // patterns when a value happens to contain "$".
         const substitutions: Record<string, string> = {
             history: apiMessageContent,
             question: question,
@@ -439,10 +455,7 @@ export const generateFollowUpPrompts = async (
             previousQuestions: previousQuestionsText,
             conversationHistory: chatHistory || 'No previous conversation.'
         }
-        const followUpPromptsPrompt = providerConfig.prompt.replace(
-            /\{(history|question|sources|previousQuestions|conversationHistory)\}/g,
-            (match: string, key: string) => (key in substitutions ? substitutions[key] : match)
-        )
+        const followUpPromptsPrompt = fillPromptTemplate(providerConfig.prompt, substitutions, options.vars)
 
         // Call LLM provider and collect raw result
         let llmResult: FollowUpPromptResult | undefined
