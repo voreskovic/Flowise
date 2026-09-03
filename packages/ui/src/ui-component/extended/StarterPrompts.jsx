@@ -48,7 +48,7 @@ import ollamaIcon from '@/assets/images/ollama.svg'
 import useNotifier from '@/utils/useNotifier'
 
 const starterPromptDescription =
-    'Prompt to generate starter questions. Available variables: {context} (chatflow context including system messages and topic content). When "Retrieve from Vector DB" is enabled, also: {retrieved_from_vector_db} — fetches article texts by ID from overrideConfig.qdrantFilter.must[].has_id and feeds them to the LLM. Including this variable disables the cache shortcut.'
+    'Prompt to generate starter questions. Available variables: {context} (chatflow context including system messages and topic content). When "Retrieve from Vector DB" is enabled, also: {retrieved_from_vector_db} — fetches article texts by ID from overrideConfig.qdrantFilter.must[].has_id and feeds them to the LLM. Including this variable disables the cache shortcut. Flowise Variables enabled for override in this chatflow are available as {{$vars.name}}, e.g. {{$vars.language}}, exactly as in the flow\'s own prompts.'
 const defaultPrompt =
     "Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user's perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}"
 
@@ -358,8 +358,8 @@ const QdrantSection = ({ title, description, state, handlers, theme, allowMetada
                         value={!!state.metadataOnly}
                     />
                     <Typography variant='body2' sx={{ color: 'text.secondary', mt: -1 }}>
-                        When on, retrieve uses only the metadata filter below (no embedding call). Returns the first matching points
-                        as cached starter prompts; if none match, falls through to LLM generation.
+                        When on, retrieve uses only the metadata filter below (no embedding call). Returns the first matching points as
+                        cached starter prompts; if none match, falls through to LLM generation.
                     </Typography>
                 </Box>
             )}
@@ -915,9 +915,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                                                 <Input
                                                     key={`${selectedProvider}-${inputParam.name}`}
                                                     inputParam={inputParam}
-                                                    onChange={(newValue) =>
-                                                        setProviderValue(newValue, selectedProvider, inputParam.name)
-                                                    }
+                                                    onChange={(newValue) => setProviderValue(newValue, selectedProvider, inputParam.name)}
                                                     value={
                                                         aiConfig[selectedProvider] && aiConfig[selectedProvider][inputParam.name]
                                                             ? aiConfig[selectedProvider][inputParam.name]
@@ -967,9 +965,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                                                             ? aiConfig[selectedProvider][inputParam.name]
                                                             : inputParam.default ?? 'choose an option'
                                                     }
-                                                    onSelect={(newValue) =>
-                                                        setProviderValue(newValue, selectedProvider, inputParam.name)
-                                                    }
+                                                    onSelect={(newValue) => setProviderValue(newValue, selectedProvider, inputParam.name)}
                                                 />
                                             </div>
                                         )}

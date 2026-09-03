@@ -2,8 +2,10 @@ import { StatusCodes } from 'http-status-codes'
 import { InternalFlowiseError } from '../../errors/internalFlowiseError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
-import { databaseEntities, CURRENT_DATE_TIME_VAR_PREFIX } from '../../utils'
+import { databaseEntities, CURRENT_DATE_TIME_VAR_PREFIX, getAPIOverrideConfig, getGlobalVariable } from '../../utils'
 import { ChatFlow } from '../../database/entities/ChatFlow'
+import { Variable } from '../../database/entities/Variable'
+import { getWorkspaceSearchOptions } from '../../enterprise/utils/ControllerServiceUtils'
 import { generateFollowUpPrompts, FollowUpPromptConfig, ICommonObject } from 'flowise-components'
 import { QdrantClient } from '@qdrant/js-client-rest'
 import { v4 as uuidv4 } from 'uuid'
@@ -59,10 +61,7 @@ async function createEmbeddingInstance(qdrantConfig: QdrantConfig, appServer: an
     const componentNodes = appServer.nodesPool.componentNodes
     const embeddingComponent = componentNodes['openAIEmbeddingsCustom']
     if (!embeddingComponent) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            'OpenAI Custom Embeddings component not found in node pool'
-        )
+        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, 'OpenAI Custom Embeddings component not found in node pool')
     }
 
     const embeddingNodeData: any = {
@@ -272,7 +271,9 @@ async function retrieveFromQdrant(
     // Build a query text from available context
     const queryText = vars.story_content
         ? (vars.story_content as string).slice(0, 500)
-        : Object.values(vars).filter((v) => typeof v === 'string').join(' ')
+        : Object.values(vars)
+              .filter((v) => typeof v === 'string')
+              .join(' ')
     if (!queryText.trim()) return null
 
     const queryVector = await embeddings.embedQuery(queryText)
@@ -305,12 +306,7 @@ async function retrieveFromQdrant(
 // Qdrant Store (non-blocking)
 // ---------------------------------------------------------------------------
 
-function storeToQdrant(
-    qdrantConfig: QdrantConfig,
-    questions: string[],
-    overrideConfig: Record<string, any>,
-    appServer: any
-): string[] {
+function storeToQdrant(qdrantConfig: QdrantConfig, questions: string[], overrideConfig: Record<string, any>, appServer: any): string[] {
     // Pre-generate UUIDs so we can return them immediately
     const ids = questions.map(() => uuidv4())
 
@@ -420,7 +416,7 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         const providerConfig = (provider && starterAiConfig?.[provider]) || {}
         const promptTemplate: string =
             providerConfig.prompt ||
-            'Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user\'s perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}'
+            "Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user's perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}"
         const usesRetrievedVar = promptTemplate.includes('{retrieved_from_vector_db}')
 
         // ----- Step 1: Try retrieving from Qdrant -----
@@ -476,6 +472,14 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         const context = buildContext(overrideConfig, chatflow.flowData, chatflow.name)
         const finalPrompt = promptTemplate.replace('{context}', context).replace('{retrieved_from_vector_db}', retrievedContent)
 
+        // {{$vars.name}} in the prompt: same Variables, allowlist and defaults as the chatflow's own node inputs.
+        // Raw overrideConfig.vars is still what {context} and the Qdrant metadata mapping read above.
+        const availableVariables = await appServer.AppDataSource.getRepository(Variable).findBy(
+            getWorkspaceSearchOptions(chatflow.workspaceId)
+        )
+        const { variableOverrides } = getAPIOverrideConfig(chatflow)
+        const vars = await getGlobalVariable(overrideConfig, availableVariables, variableOverrides)
+
         const starterConfig: FollowUpPromptConfig = {
             status: true,
             selectedProvider: provider,
@@ -495,7 +499,8 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
             question: '',
             sourceDocuments: '',
             chatHistory: '',
-            analytic: chatflow.analytic || ''
+            analytic: chatflow.analytic || '',
+            vars
         })
 
         const questions = result?.questions || []

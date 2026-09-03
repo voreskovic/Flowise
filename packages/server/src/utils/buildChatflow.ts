@@ -58,7 +58,8 @@ import {
     getMemorySessionId,
     getEndingNodes,
     constructGraphs,
-    getAPIOverrideConfig
+    getAPIOverrideConfig,
+    getGlobalVariable
 } from '../utils'
 import { validateFileMimeTypeAndExtensionMatch } from './fileValidation'
 import { validateFlowAPIKey } from './validateKey'
@@ -908,6 +909,8 @@ export const executeFlow = async ({
             } catch {
                 // no previous follow-up prompts available
             }
+            // {{$vars.name}} in the follow-up prompt: same Variables, allowlist and defaults as the flow's node inputs
+            const vars = await getGlobalVariable(flowConfig, availableVariables, variableOverrides)
             const followUpPrompts = await generateFollowUpPrompts(followUpPromptsConfig, apiMessage.content, {
                 chatId,
                 chatflowid,
@@ -917,7 +920,8 @@ export const executeFlow = async ({
                 sourceDocuments: apiMessage.sourceDocuments ?? '',
                 chatHistory: convertChatHistoryToText(chatHistory),
                 analytic: chatflow.analytic,
-                previousFollowUpPrompts
+                previousFollowUpPrompts,
+                vars
             })
             if (followUpPrompts?.questions) {
                 apiMessage.followUpPrompts = JSON.stringify(followUpPrompts.questions)

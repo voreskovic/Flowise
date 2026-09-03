@@ -1,5 +1,17 @@
 import PropTypes from 'prop-types'
-import { Box, Button, Chip, FormControl, ListItem, ListItemAvatar, ListItemText, MenuItem, OutlinedInput, Select, Typography } from '@mui/material'
+import {
+    Box,
+    Button,
+    Chip,
+    FormControl,
+    ListItem,
+    ListItemAvatar,
+    ListItemText,
+    MenuItem,
+    OutlinedInput,
+    Select,
+    Typography
+} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useDispatch } from 'react-redux'
 import { useTheme } from '@mui/material/styles'
@@ -27,7 +39,7 @@ import { IconX } from '@tabler/icons-react'
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
 
 const promptDescription =
-    'Prompt to generate follow-up questions. Available variables: {history} (last assistant response), {question} (user question), {sources} (retrieved source documents), {previousQuestions} (all previously asked questions), {conversationHistory} (full Q&A conversation history).'
+    "Prompt to generate follow-up questions. Available variables: {history} (last assistant response), {question} (user question), {sources} (retrieved source documents), {previousQuestions} (all previously asked questions), {conversationHistory} (full Q&A conversation history). Flowise Variables enabled for override in this chatflow are available as {{$vars.name}}, e.g. {{$vars.language}}, exactly as in the flow's own prompts."
 const defaultPrompt =
     'Given the following conversation: {history}\nAll of the user questions so far: {previousQuestions}\nInformation about articles talked about: {sources}\n\nONLY generate follow-up questions if the assistant\'s last response contained actual retrieved news information.\nIf the assistant said it could not find information, output ONLY: NONE\n\nOtherwise generate exactly 3 follow-up questions:\n- CRITICAL: Write in the SAME LANGUAGE as the user\'s last message\n- CRITICAL: Never repeat or rephrase the user\'s last question\n- CRITICAL: Only use specific details (people, places, institutions, numbers) that were explicitly mentioned in the retrieved article\n- CRITICAL: Each question must be grammatically correct and naturally phrased in the target language\n- Each question must drill into a NEW unexplored detail of THAT specific story\n- NO questions that would work for any generic version of this topic\n- MAX 8 words per question\n- Output ONLY the 3 questions, one per line, nothing else\n\nBAD: User asked "Koji su glavni uzroci trovanja hranom u menzi?" → "Koji su glavni uzroci trovanja hranom?" (identical/rephrased)\nBAD: "Kako ovo utiče na lokalnu zajednicu?" (generic, no specific details)\nGOOD: "Koliko učenika je hospitalizovano u toj menzi?" (specific, deeper, uses story details)'
 
@@ -477,7 +489,9 @@ const FollowUpPrompts = ({ dialogProps }) => {
                 {followUpPromptsConfig && followUpPromptsConfig.status && (
                     <>
                         <Box sx={{ width: '100%' }}>
-                            <Typography variant='h5' sx={{ mb: 1 }}>Source Processing</Typography>
+                            <Typography variant='h5' sx={{ mb: 1 }}>
+                                Source Processing
+                            </Typography>
                             <FormControl fullWidth>
                                 <Select
                                     size='small'
@@ -585,7 +599,8 @@ const FollowUpPrompts = ({ dialogProps }) => {
                             />
                             {(followUpPromptsConfig.skipWhenExhausted ?? true) && (
                                 <Typography variant='body2' sx={{ pl: 2, color: 'text.secondary', mt: -1.5 }}>
-                                    Deterministically skips the LLM call when all source document topics have been covered in conversation (zero token cost).
+                                    Deterministically skips the LLM call when all source document topics have been covered in conversation
+                                    (zero token cost).
                                 </Typography>
                             )}
                             <SwitchInput
@@ -596,7 +611,8 @@ const FollowUpPrompts = ({ dialogProps }) => {
                             {(followUpPromptsConfig.deduplicationEnabled ?? true) && (
                                 <Box sx={{ width: '100%', pl: 2 }}>
                                     <Typography variant='body2' sx={{ color: 'text.secondary', mb: 1 }}>
-                                        After LLM generates candidates, filters out any question that overlaps with a previously asked question (zero token cost).
+                                        After LLM generates candidates, filters out any question that overlaps with a previously asked
+                                        question (zero token cost).
                                     </Typography>
                                     <Box sx={{ display: 'flex', gap: 2 }}>
                                         <Box sx={{ flex: 1 }}>
@@ -713,7 +729,13 @@ const FollowUpPrompts = ({ dialogProps }) => {
                                                 />
                                                 {inputParam.name === 'prompt' && (
                                                     <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
-                                                        {['{history}', '{question}', '{sources}', '{previousQuestions}', '{conversationHistory}'].map((variable) => (
+                                                        {[
+                                                            '{history}',
+                                                            '{question}',
+                                                            '{sources}',
+                                                            '{previousQuestions}',
+                                                            '{conversationHistory}'
+                                                        ].map((variable) => (
                                                             <Chip
                                                                 key={variable}
                                                                 label={variable}
