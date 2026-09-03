@@ -38,7 +38,11 @@ function normalize(text: string, minWordLength: number = 3): string[] {
  * Used by the exhaustion gate for language-agnostic topic coverage detection.
  */
 function extractNgrams(text: string, n: number = 3): Set<string> {
-    const cleaned = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ' ').replace(/\s+/g, ' ').trim()
+    const cleaned = text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
     const ngrams = new Set<string>()
     const words = cleaned.split(' ')
     for (const word of words) {
@@ -294,11 +298,7 @@ function getUnclickedPrompts(
  * Remove near-duplicates within a candidate list (intra-candidate dedup).
  * Keeps the first occurrence (earlier = higher priority).
  */
-function deduplicateWithinCandidates(
-    candidates: string[],
-    threshold: number = 0.6,
-    minWordLength: number = 3
-): string[] {
+function deduplicateWithinCandidates(candidates: string[], threshold: number = 0.6, minWordLength: number = 3): string[] {
     const result: string[] = []
     const keptSets: Set<string>[] = []
 

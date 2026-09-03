@@ -59,10 +59,7 @@ async function createEmbeddingInstance(qdrantConfig: QdrantConfig, appServer: an
     const componentNodes = appServer.nodesPool.componentNodes
     const embeddingComponent = componentNodes['openAIEmbeddingsCustom']
     if (!embeddingComponent) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            'OpenAI Custom Embeddings component not found in node pool'
-        )
+        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, 'OpenAI Custom Embeddings component not found in node pool')
     }
 
     const embeddingNodeData: any = {
@@ -272,7 +269,9 @@ async function retrieveFromQdrant(
     // Build a query text from available context
     const queryText = vars.story_content
         ? (vars.story_content as string).slice(0, 500)
-        : Object.values(vars).filter((v) => typeof v === 'string').join(' ')
+        : Object.values(vars)
+              .filter((v) => typeof v === 'string')
+              .join(' ')
     if (!queryText.trim()) return null
 
     const queryVector = await embeddings.embedQuery(queryText)
@@ -305,12 +304,7 @@ async function retrieveFromQdrant(
 // Qdrant Store (non-blocking)
 // ---------------------------------------------------------------------------
 
-function storeToQdrant(
-    qdrantConfig: QdrantConfig,
-    questions: string[],
-    overrideConfig: Record<string, any>,
-    appServer: any
-): string[] {
+function storeToQdrant(qdrantConfig: QdrantConfig, questions: string[], overrideConfig: Record<string, any>, appServer: any): string[] {
     // Pre-generate UUIDs so we can return them immediately
     const ids = questions.map(() => uuidv4())
 
@@ -420,7 +414,7 @@ const generateStarterPrompts = async (chatflowId: string, overrideConfig: Record
         const providerConfig = (provider && starterAiConfig?.[provider]) || {}
         const promptTemplate: string =
             providerConfig.prompt ||
-            'Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user\'s perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}'
+            "Based on the following context, generate 4 short starter prompts a user might ask when first opening the chat. Each should be concise (under 100 characters), written from the user's perspective, and demonstrate different aspects of what this chatbot can help with.\n\nContext:\n{context}"
         const usesRetrievedVar = promptTemplate.includes('{retrieved_from_vector_db}')
 
         // ----- Step 1: Try retrieving from Qdrant -----

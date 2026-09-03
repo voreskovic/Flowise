@@ -358,8 +358,8 @@ const QdrantSection = ({ title, description, state, handlers, theme, allowMetada
                         value={!!state.metadataOnly}
                     />
                     <Typography variant='body2' sx={{ color: 'text.secondary', mt: -1 }}>
-                        When on, retrieve uses only the metadata filter below (no embedding call). Returns the first matching points
-                        as cached starter prompts; if none match, falls through to LLM generation.
+                        When on, retrieve uses only the metadata filter below (no embedding call). Returns the first matching points as
+                        cached starter prompts; if none match, falls through to LLM generation.
                     </Typography>
                 </Box>
             )}
@@ -915,9 +915,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                                                 <Input
                                                     key={`${selectedProvider}-${inputParam.name}`}
                                                     inputParam={inputParam}
-                                                    onChange={(newValue) =>
-                                                        setProviderValue(newValue, selectedProvider, inputParam.name)
-                                                    }
+                                                    onChange={(newValue) => setProviderValue(newValue, selectedProvider, inputParam.name)}
                                                     value={
                                                         aiConfig[selectedProvider] && aiConfig[selectedProvider][inputParam.name]
                                                             ? aiConfig[selectedProvider][inputParam.name]
@@ -967,9 +965,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
                                                             ? aiConfig[selectedProvider][inputParam.name]
                                                             : inputParam.default ?? 'choose an option'
                                                     }
-                                                    onSelect={(newValue) =>
-                                                        setProviderValue(newValue, selectedProvider, inputParam.name)
-                                                    }
+                                                    onSelect={(newValue) => setProviderValue(newValue, selectedProvider, inputParam.name)}
                                                 />
                                             </div>
                                         )}

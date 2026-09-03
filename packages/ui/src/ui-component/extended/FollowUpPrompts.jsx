@@ -1,5 +1,17 @@
 import PropTypes from 'prop-types'
-import { Box, Button, Chip, FormControl, ListItem, ListItemAvatar, ListItemText, MenuItem, OutlinedInput, Select, Typography } from '@mui/material'
+import {
+    Box,
+    Button,
+    Chip,
+    FormControl,
+    ListItem,
+    ListItemAvatar,
+    ListItemText,
+    MenuItem,
+    OutlinedInput,
+    Select,
+    Typography
+} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useDispatch } from 'react-redux'
 import { useTheme } from '@mui/material/styles'
@@ -477,7 +489,9 @@ const FollowUpPrompts = ({ dialogProps }) => {
                 {followUpPromptsConfig && followUpPromptsConfig.status && (
                     <>
                         <Box sx={{ width: '100%' }}>
-                            <Typography variant='h5' sx={{ mb: 1 }}>Source Processing</Typography>
+                            <Typography variant='h5' sx={{ mb: 1 }}>
+                                Source Processing
+                            </Typography>
                             <FormControl fullWidth>
                                 <Select
                                     size='small'
@@ -585,7 +599,8 @@ const FollowUpPrompts = ({ dialogProps }) => {
                             />
                             {(followUpPromptsConfig.skipWhenExhausted ?? true) && (
                                 <Typography variant='body2' sx={{ pl: 2, color: 'text.secondary', mt: -1.5 }}>
-                                    Deterministically skips the LLM call when all source document topics have been covered in conversation (zero token cost).
+                                    Deterministically skips the LLM call when all source document topics have been covered in conversation
+                                    (zero token cost).
                                 </Typography>
                             )}
                             <SwitchInput
@@ -596,7 +611,8 @@ const FollowUpPrompts = ({ dialogProps }) => {
                             {(followUpPromptsConfig.deduplicationEnabled ?? true) && (
                                 <Box sx={{ width: '100%', pl: 2 }}>
                                     <Typography variant='body2' sx={{ color: 'text.secondary', mb: 1 }}>
-                                        After LLM generates candidates, filters out any question that overlaps with a previously asked question (zero token cost).
+                                        After LLM generates candidates, filters out any question that overlaps with a previously asked
+                                        question (zero token cost).
                                     </Typography>
                                     <Box sx={{ display: 'flex', gap: 2 }}>
                                         <Box sx={{ flex: 1 }}>
@@ -713,7 +729,13 @@ const FollowUpPrompts = ({ dialogProps }) => {
                                                 />
                                                 {inputParam.name === 'prompt' && (
                                                     <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
-                                                        {['{history}', '{question}', '{sources}', '{previousQuestions}', '{conversationHistory}'].map((variable) => (
+                                                        {[
+                                                            '{history}',
+                                                            '{question}',
+                                                            '{sources}',
+                                                            '{previousQuestions}',
+                                                            '{conversationHistory}'
+                                                        ].map((variable) => (
                                                             <Chip
                                                                 key={variable}
                                                                 label={variable}
